@@ -90,6 +90,26 @@ class ShapeMapper:
             else:
                 drawio_style["strokeWidth"] = 2
 
+        # Font size
+        if "fontSize" in excel_style:
+            drawio_style["fontSize"] = excel_style["fontSize"]
+
+        # Font color
+        if "fontColor" in excel_style:
+            drawio_style["fontColor"] = excel_style["fontColor"]
+
+        # Font style
+        if "fontStyle" in excel_style:
+            style = excel_style["fontStyle"]
+            if style == "bold":
+                drawio_style["fontStyle"] = "1"
+
+        # Alignment
+        if "align" in excel_style:
+            drawio_style["align"] = excel_style["align"]
+        if "verticalAlign" in excel_style:
+            drawio_style["verticalAlign"] = excel_style["verticalAlign"]
+
         return drawio_style
 
     @staticmethod
@@ -104,6 +124,12 @@ class ShapeMapper:
         shape_type = style.get("shape", "rectangle")
         if shape_type == "roundRect":
             parts.append("rounded=1")
+        elif shape_type == "rectangle":
+            # Check for explicit rounded setting
+            if style.get("rounded") == "0":
+                parts.append("rounded=0")
+            elif "rounded" in style:
+                parts.append(f"rounded={style['rounded']}")
 
         # Text wrapping
         parts.append("whiteSpace=wrap")
@@ -126,6 +152,8 @@ class ShapeMapper:
             parts.append(f'fontSize={style["fontSize"]}')
         if "fontColor" in style:
             parts.append(f'fontColor={style["fontColor"]}')
+        if "fontStyle" in style:
+            parts.append(f'fontStyle={style["fontStyle"]}')
 
         # Alignment
         if "align" in style:

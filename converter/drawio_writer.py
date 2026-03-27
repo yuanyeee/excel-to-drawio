@@ -1,5 +1,5 @@
 """
-draw.io Writer - Generate draw.io XML format
+draw.io Writer - Generate draw.io XML format with support for cell borders
 """
 
 import xml.etree.ElementTree as ET
@@ -13,10 +13,11 @@ from .shape_mapper import ShapeMapper
 class DrawioWriter:
     """Generate draw.io XML files"""
 
-    def __init__(self, sheets_data: Dict):
+    def __init__(self, sheets_data: Dict, include_borders: bool = True):
         self.sheets_data = sheets_data
         self.mapper = ShapeMapper()
         self.shape_counter = 0
+        self.include_borders = include_borders
 
     def write(self, output_path: str):
         """Write all sheets to a single draw.io file with multiple pages"""
@@ -109,15 +110,22 @@ class DrawioWriter:
             # Style
             style_dict = self.mapper.map_style(shape.style)
             style_dict["shape"] = shape_type
+
+            # Add rounded corners for cell-based shapes
+            if shape.source == "cell":
+                style_dict["rounded"] = "0"
+
             if not shape.text:
                 style_dict["fontSize"] = "12"
-            style_str = self.mapper.build_style_string(style_dict)
 
+            style_str = self.mapper.build_style_string(style_dict)
             cell.set("style", style_str)
 
             # Value (text content)
             if shape.text:
-                cell.set("value", shape.text)
+                # Escape XML special characters
+                escaped_text = self._escape_xml(shape.text)
+                cell.set("value", escaped_text)
 
             cell_id += 1
 
@@ -154,6 +162,18 @@ class DrawioWriter:
                     mxPoint.set("y", str(point[1] / 914400 * 96))
 
             cell_id += 1
+
+    def _escape_xml(self, text: str) -> str:
+        """Escape XML special characters"""
+        if not text:
+            return ""
+        return (
+            text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&apos;")
+        )
 
     def _prettify(self, elem: ET.Element) -> str:
         """Return a pretty-printed XML string"""
