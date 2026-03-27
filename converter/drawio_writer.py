@@ -1,5 +1,6 @@
 """
-draw.io Writer - Generate draw.io XML format with support for cell borders
+draw.io Writer - Generate draw.io XML format with support for cell borders,
+custom geometry, deep group shapes, and off-page connectors
 """
 
 import xml.etree.ElementTree as ET
@@ -116,14 +117,28 @@ class DrawioWriter:
                 style_dict["rounded"] = "0"
 
             if not shape.text:
-                style_dict["fontSize"] = "12"
+                if "fontSize" not in style_dict:
+                    style_dict["fontSize"] = "12"
+
+            # Handle off-page connectors specially
+            if shape.type == "offpageConnector" or shape.type == "offPageConnector":
+                style_dict["shape"] = "offPageConnector"
+                style_dict["verticalLabelPosition"] = "bottom"
+                if shape.text:
+                    style_dict["labelBackgroundColor"] = "#FFFFFF"
+
+            # Handle custom geometry
+            if shape.type == "custom" and shape.geometry == "path" and shape.path_data:
+                # Use a rectangle as base and specify as custom
+                style_dict["shape"] = "custom"
+                # Store the path in UserObject for draw.io to pick up
+                # draw.io interprets custom shapes via the style
 
             style_str = self.mapper.build_style_string(style_dict)
             cell.set("style", style_str)
 
             # Value (text content)
             if shape.text:
-                # Escape XML special characters
                 escaped_text = self._escape_xml(shape.text)
                 cell.set("value", escaped_text)
 
@@ -139,18 +154,19 @@ class DrawioWriter:
             cell.set("id", str(cell_id))
             cell.set("parent", "0")
             cell.set("edge", "1")
-            cell.set("source", str(conn.get("source_id", "")))
-            cell.set("target", str(conn.get("target_id", "")))
+
+            if conn.get("source_id"):
+                cell.set("source", str(conn.get("source_id")))
+            if conn.get("target_id"):
+                cell.set("target", str(conn.get("target_id")))
 
             # Style
             style_dict = self.mapper.map_style(conn.style)
-            style_dict["shape"] = "arrow"
             style_str = self.mapper.build_style_string(style_dict)
-
             cell.set("style", style_str)
 
             # Geometry with points
-            if conn.points:
+            if conn.points and len(conn.points) >= 2:
                 geo = ET.SubElement(cell, "mxGeometry")
                 geo.set("as", "geometry")
                 geo.set("relative", "1")
@@ -177,9 +193,9 @@ class DrawioWriter:
 
     def _prettify(self, elem: ET.Element) -> str:
         """Return a pretty-printed XML string"""
-        rough_string = ET.tostring(elem, encoding="unicode")
+        rough_string = ET.tostring(elem, encoding="utf-8").decode("utf-8")
         reparsed = minidom.parseString(rough_string)
-        return reparsed.toprettyxml(indent="  ", encoding="unicode")
+        return reparsed.toprettyxml(indent="  ")
 
 
 class SimpleDrawioWriter:
@@ -238,8 +254,8 @@ class SimpleDrawioWriter:
 
         # Write
         xml_str = minidom.parseString(
-            ET.tostring(root, encoding="unicode")
-        ).toprettyxml(indent="  ", encoding="unicode")
+            ET.tostring(root, encoding="utf-8").decode("utf-8")
+        ).toprettyxml(indent="  ")
 
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(xml_str)

@@ -115,13 +115,17 @@ class CellGrid:
 
         # Calculate position
         x = sum(
-            self.worksheet.column_dimensions.get(get_column_letter(c)).width or 8.43
+            (self.worksheet.column_dimensions.get(get_column_letter(c)).width or 8.43)
+            if self.worksheet.column_dimensions.get(get_column_letter(c))
+            else 8.43
             for c in range(1, col)
         )
         x_emu = x * 914400 / 8.43
 
         y = sum(
-            self.worksheet.row_dimensions.get(r).height or 15
+            (self.worksheet.row_dimensions.get(r).height or 15)
+            if self.worksheet.row_dimensions.get(r)
+            else 15
             for r in range(1, row)
         )
         y_emu = y * 914400 / 72

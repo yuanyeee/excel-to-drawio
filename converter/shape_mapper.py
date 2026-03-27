@@ -28,13 +28,27 @@ EXCEL_TO_DRAWIO_MAP = {
     "arc": "arc",
     "line": "line",
     "bentLine": "bentConnector",
-    "straightConnector": "connector",
-    "curvedConnector": "curvedConnector",
+    "straightConnector1": "straightConnector",
+    "straightConnector": "straightConnector",
+    "curvedConnector": "curvedConnector3",
     "arrow": "arrow",
-    # Text box
+    # Flowchart shapes
+    "flowChartProcess": "process",
+    "flowChartDecision": "decision",
+    "flowChartTerminator": "terminator",
+    "flowChartOffpageConnector": "offPageConnector",
+    "offpageConnector": "offPageConnector",
+    "offPageConnector": "offPageConnector",
+    # Text
     "textBox": "text",
-    # Group
+    "text": "text",
+    # Notes
+    "note": "note",
+    # Groups
     "group": "group",
+    "grpSp": "group",
+    # Custom / path-based
+    "custom": "custom",
 }
 
 
@@ -75,7 +89,10 @@ class ShapeMapper:
 
         # Fill color
         if "fillColor" in excel_style:
-            drawio_style["fillColor"] = excel_style["fillColor"]
+            color = excel_style["fillColor"]
+            # Handle scheme colors (keep as-is, they'll be resolved later)
+            if color:
+                drawio_style["fillColor"] = color
 
         # Stroke color
         if "strokeColor" in excel_style:
@@ -84,7 +101,6 @@ class ShapeMapper:
         # Stroke width
         if "strokeWidth" in excel_style:
             width = excel_style["strokeWidth"]
-            # Convert points to pixels (roughly)
             if isinstance(width, (int, float)):
                 drawio_style["strokeWidth"] = width
             else:
@@ -125,11 +141,16 @@ class ShapeMapper:
         if shape_type == "roundRect":
             parts.append("rounded=1")
         elif shape_type == "rectangle":
-            # Check for explicit rounded setting
             if style.get("rounded") == "0":
                 parts.append("rounded=0")
             elif "rounded" in style:
                 parts.append(f"rounded={style['rounded']}")
+
+        # Special handling for off-page connectors
+        if shape_type == "offPageConnector":
+            parts.append("verticalLabelPosition=bottom")
+            parts.append("labelBackgroundColor=#FFFFFF")
+            parts.append("fontColor=#FF0000")
 
         # Text wrapping
         parts.append("whiteSpace=wrap")
@@ -162,3 +183,11 @@ class ShapeMapper:
             parts.append(f'verticalAlign={style["verticalAlign"]}')
 
         return ";".join(parts)
+
+    @staticmethod
+    def get_geometry_aspect(shape_type: str, width: float, height: float) -> tuple:
+        """
+        Return (geometry_name, aspect_ratio) for custom geometry handling.
+        For shapes with special aspect ratios.
+        """
+        return (shape_type, width / height if height != 0 else 1)
