@@ -10,31 +10,32 @@ Convert Excel shapes, diagrams, flowcharts, and ER diagrams to draw.io format.
 - 🎨 Preserves basic styling: fill color, stroke color, text
 - 📊 **Cell-based diagrams**: Merged cells with borders are converted to shapes
 - 📝 **Cell content**: Text in cells is preserved
-- ⚡ Simple CLI interface
+- 🖥️ **GUI Mode**: Easy-to-use web interface (no command line needed)
 
-## Installation
+## Quick Start - GUI Mode (Recommended)
+
+### Windows / Mac / Linux
+
+1. Download or clone this repository
+2. Double-click `run.bat` (Windows) or `run.sh` (Mac/Linux)
+3. Open http://localhost:8765 in your browser
+4. Drag & drop your Excel file
+5. Select sheets to convert
+6. Click "Convert" and download
+
+## Command Line Usage
+
+### Installation
 
 ```bash
 pip install openpyxl click
 ```
-
-Or install from source:
-
-```bash
-git clone https://github.com/yuanyeee/excel-to-drawio.git
-cd excel-to-drawio
-pip install -e .
-```
-
-## Usage
 
 ### Basic Usage
 
 ```bash
 python main.py input.xlsx
 ```
-
-This will create `input.drawio` with all sheets converted.
 
 ### Specify Output File
 
@@ -102,12 +103,6 @@ draw.io:
 └─────┴─────┴───────────┘
 ```
 
-The converter:
-1. Detects merged cell ranges
-2. Extracts cell position, size, and content
-3. Converts each cell/merged-range to a draw.io rectangle
-4. Preserves fill colors and text styling
-
 ## Development
 
 ### Setup
@@ -118,7 +113,15 @@ cd excel-to-drawio
 pip install -r requirements.txt
 ```
 
-### Run
+### Run GUI Server
+
+```bash
+python serve.py [port]
+# Default port: 8765
+# Open http://localhost:8765 in browser
+```
+
+### Run CLI
 
 ```bash
 python main.py input.xlsx
@@ -135,6 +138,9 @@ python -m pytest tests/
 ```
 excel-to-drawio/
 ├── main.py                  # CLI entry point
+├── serve.py                 # GUI web server
+├── run.bat                  # Windows launcher
+├── run.sh                   # Mac/Linux launcher
 ├── converter/
 │   ├── __init__.py
 │   ├── excel_reader.py       # Excel shape extraction + cell extraction
@@ -144,7 +150,6 @@ excel-to-drawio/
 ├── tests/
 │   └── test_converter.py
 ├── requirements.txt
-├── setup.py
 ├── README.md
 └── .gitignore
 ```
