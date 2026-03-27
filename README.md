@@ -11,6 +11,9 @@ Convert Excel shapes, diagrams, flowcharts, and ER diagrams to draw.io format.
 - 📊 **Cell-based diagrams**: Merged cells with borders are converted to shapes
 - 📝 **Cell content**: Text in cells is preserved
 - 🖥️ **GUI Mode**: Easy-to-use web interface (no command line needed)
+- 📊 **Progress bar**: Real-time progress updates for large file conversions
+- 🎛️ **Conversion options**: Output format (draw.io/SVG), include/exclude connectors and cell colors
+- 💾 **Settings persistence**: Options saved in localStorage between sessions
 
 ## Quick Start - GUI Mode (Recommended)
 
@@ -21,7 +24,16 @@ Convert Excel shapes, diagrams, flowcharts, and ER diagrams to draw.io format.
 3. Open http://localhost:8765 in your browser
 4. Drag & drop your Excel file
 5. Select sheets to convert
-6. Click "Convert" and download
+6. Configure options (format, connectors, cell colors)
+7. Click "Convert" and download
+
+#### GUI Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| Output Format | draw.io (.drawio) or SVG (.svg) | draw.io |
+| Include connectors/lines | Include connector and arrow shapes | ✅ On |
+| Include cell background colors | Preserve cell fill colors | ✅ On |
 
 ## Command Line Usage
 
@@ -120,6 +132,8 @@ python serve.py [port]
 # Default port: 8765
 # Open http://localhost:8765 in browser
 ```
+
+> **Note**: The GUI uses Server-Sent Events (SSE) for real-time progress streaming. The `/convert-stream` endpoint provides live conversion progress, while `/convert` remains available for backward compatibility.
 
 ### Run CLI
 
