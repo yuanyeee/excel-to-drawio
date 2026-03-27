@@ -173,11 +173,6 @@ class ExcelReader:
         shape_id = start_id
 
         try:
-            # Get worksheet relationships to find drawing files
-            rels_path = self._find_worksheet_rels(worksheet)
-            if not rels_path:
-                return shapes, connectors
-
             # Find the drawing IDs for this worksheet
             drawing_ids = self._get_worksheet_drawing_ids(worksheet)
             if not drawing_ids:

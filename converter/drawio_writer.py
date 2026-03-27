@@ -155,10 +155,10 @@ class DrawioWriter:
             cell.set("parent", "0")
             cell.set("edge", "1")
 
-            if conn.get("source_id"):
-                cell.set("source", str(conn.get("source_id")))
-            if conn.get("target_id"):
-                cell.set("target", str(conn.get("target_id")))
+            if hasattr(conn, 'source_id') and conn.source_id:
+                cell.set("source", str(conn.source_id))
+            if hasattr(conn, 'target_id') and conn.target_id:
+                cell.set("target", str(conn.target_id))
 
             # Style
             style_dict = self.mapper.map_style(conn.style)
