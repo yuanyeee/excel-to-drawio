@@ -28,6 +28,11 @@ def main():
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Verbose output"
     )
+    parser.add_argument(
+        "--include-cells",
+        action="store_true",
+        help="Include cell-based shapes (can add many grid-like objects)",
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -41,11 +46,13 @@ def main():
         print(f"Input:  {input_path}")
         print(f"Output: {output_path}")
         print(f"Sheets: {args.sheets or 'all'}")
+        print(f"Include cells: {args.include_cells}")
 
     result = convert_excel_to_drawio(
         input_path=str(input_path),
         output_path=str(output_path),
         sheet_names=args.sheets,
+        include_cells=args.include_cells,
     )
 
     print(f"\n✅ Success! Created: {output_path}")

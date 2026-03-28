@@ -196,10 +196,10 @@ class ExcelToDrawioApp:
         ).pack(anchor=tk.W, padx=10)
         
         # Include cell colors option
-        self.include_cell_colors = tk.BooleanVar(value=True)
+        self.include_cell_colors = tk.BooleanVar(value=False)
         tk.Checkbutton(
             options_container,
-            text="Include cell background colors",
+            text="Include cell-based blocks/colors",
             variable=self.include_cell_colors
         ).pack(anchor=tk.W, padx=10)
         
@@ -388,6 +388,7 @@ class ExcelToDrawioApp:
                     input_path=self.input_file,
                     output_path=output_path,
                     sheet_names=self.selected_sheets,
+                    include_cells=self.include_cell_colors.get(),
                 )
 
                 self.output_file = output_path

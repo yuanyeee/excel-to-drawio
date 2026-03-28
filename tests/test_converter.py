@@ -205,6 +205,30 @@ class TestHighLevelConverter:
             if os.path.exists(output_path):
                 os.unlink(output_path)
 
+    def test_convert_excel_to_drawio_defaults_to_no_cell_shapes(self):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "OnlyCells"
+        ws["A1"] = "X"
+        ws["A1"].fill = PatternFill(fill_type="solid", fgColor="FFFF0000")
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f_in:
+            input_path = f_in.name
+        with tempfile.NamedTemporaryFile(suffix=".drawio", delete=False) as f_out:
+            output_path = f_out.name
+
+        try:
+            wb.save(input_path)
+            convert_excel_to_drawio(input_path, output_path)
+            with open(output_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            assert "#FF0000" not in content
+        finally:
+            if os.path.exists(input_path):
+                os.unlink(input_path)
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+
 
 class TestExcelReader:
     """Test Excel reader (requires actual Excel file)"""

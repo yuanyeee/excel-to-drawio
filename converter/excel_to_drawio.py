@@ -26,7 +26,7 @@ def convert_excel_to_drawio(
     input_path: str,
     output_path: str,
     sheet_names: Optional[List[str]] = None,
-    include_cells: bool = True,
+    include_cells: bool = False,
 ) -> ConversionResult:
     """
     Convert an Excel workbook into a single multi-page draw.io file.
