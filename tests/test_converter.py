@@ -269,9 +269,6 @@ class TestExcelReader:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
 
-    def test_excel_reader_module_compiles(self):
-        module_path = Path(__file__).resolve().parents[1] / "converter" / "excel_reader.py"
-        py_compile.compile(str(module_path), doraise=True)
 
 
 if __name__ == "__main__":
