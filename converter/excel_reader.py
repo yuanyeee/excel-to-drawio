@@ -1056,6 +1056,24 @@ class ExcelReader:
             )
             shape_id += 1
 
+                # Avoid creating noisy shapes for plain text-only cells.
+                if not (has_fill or has_border):
+                    continue
+                shapes.append(
+                    Shape(
+                        shape_id=shape_id,
+                        name=f"Cell_{get_column_letter(cell.column)}{cell.row}",
+                        type="rectangle",
+                        x=x,
+                        y=y,
+                        width=width,
+                        height=height,
+                        text=text,
+                        style=style,
+                        source="cell",
+                    )
+                )
+                shape_id += 1
         return shapes
 
     def _merge_fill_only_cells(
@@ -1256,6 +1274,10 @@ class ExcelReader:
                 return None
 
         rgb = rgb.strip()
+        # openpyxl may return custom RGB objects that expose `.value`
+        if hasattr(rgb, "value"):
+            rgb = rgb.value
+        rgb = str(rgb).strip()
         if not rgb:
             return None
         if rgb.startswith("#"):
