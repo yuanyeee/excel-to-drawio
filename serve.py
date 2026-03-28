@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from converter import ExcelReader, DrawioWriter
 
 TEMP_FILE = None
+ORIGINAL_FILENAME = None
 
 
 def get_html():
@@ -144,8 +145,8 @@ def get_html():
         </div>
     </div>
     <div class="card">
-        <div class="drop" id="drop"><div class="drop-icon">&#128193;</div><div class="drop-text">Drop Excel file or click to browse</div><div class="drop-hint">Supports .xlsx, .xls</div></div>
-        <input type="file" id="fileInput" accept=".xlsx,.xls">
+        <div class="drop" id="drop"><div class="drop-icon">&#128193;</div><div class="drop-text">Drop Excel file or click to browse</div><div class="drop-hint">Supports .xlsx, .xls, .xlsm</div></div>
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm">
         <div class="info" id="info"><button class="clear-btn" onclick="clearFile()">Clear</button><div class="info-name" id="fileName"></div><div class="info-size" id="fileSize"></div></div>
         <div class="sheets" id="sheets"><div class="sheets-title">Select sheets to convert:</div><div class="sheet-list" id="sheetList"></div><div class="sheets-actions"><label><input type="checkbox" id="selectAll" checked onchange="toggleAll()"> Select All / Deselect All</label></div></div>
         <div class="preview" id="preview"><div class="preview-title">&#128202; Conversion Preview</div><div id="previewBody"></div><div class="preview-total"><span>Total</span><span><span id="totalShapes">0</span> shapes &middot; <span id="totalConnectors">0</span> connectors &nbsp;|&nbsp; <span class="est-size" id="estSize">~0 KB</span></span></div></div>
@@ -187,12 +188,12 @@ drop.ondragover=function(e){e.preventDefault();drop.classList.add("drag");};
 drop.ondragleave=function(){drop.classList.remove("drag");};
 drop.ondrop=function(e){e.preventDefault();drop.classList.remove("drag");if(e.dataTransfer.files[0])loadFile(e.dataTransfer.files[0]);};
 fileInput.onchange=function(e){if(e.target.files[0])loadFile(e.target.files[0]);};
-function loadFile(file){if(!file.name.match(/\\.xlsx?$/i)){showError("Please select an Excel file (.xlsx or .xls)");return;}currentFile=file;currentFileName=file.name;sheetPreviewData={};document.getElementById("fileName").textContent=file.name;document.getElementById("fileSize").textContent=formatSize(file.size);document.getElementById("info").classList.add("show");document.getElementById("preview").classList.remove("show");drop.style.display="none";loadSheets(file);}
-async function loadSheets(file){var reader=new FileReader();reader.onload=async function(e){var b64=e.target.result.split(",")[1];try{var resp=await fetch("/sheets",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data:b64})});var data=await resp.json();if(data.success)showSheets(data.sheets);else showError(data.error);}catch(err){showError(err.message);}};reader.readAsDataURL(file);}
+function loadFile(file){if(!file.name.match(/\\.(xlsx|xls|xlsm)$/i)){showError("Please select an Excel file (.xlsx, .xls, or .xlsm)");return;}currentFile=file;currentFileName=file.name;sheetPreviewData={};document.getElementById("fileName").textContent=file.name;document.getElementById("fileSize").textContent=formatSize(file.size);document.getElementById("info").classList.add("show");document.getElementById("preview").classList.remove("show");drop.style.display="none";loadSheets(file);}
+async function loadSheets(file){var reader=new FileReader();reader.onload=async function(e){var b64=e.target.result.split(",")[1];try{var resp=await fetch("/sheets?filename="+encodeURIComponent(currentFileName),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data:b64})});var data=await resp.json();if(data.success)showSheets(data.sheets);else showError(data.error);}catch(err){showError(err.message);}};reader.readAsDataURL(file);}
 function showSheets(sheets){var list=document.getElementById("sheetList");list.innerHTML="";var lastSheets=loadLastSheets(currentFileName);sheets.forEach(function(s){var checked=lastSheets?lastSheets.indexOf(s)!==-1:true;var label=document.createElement("label");label.className="sheet";label.innerHTML="<input type="checkbox" name="sheets" value=""+s+"""+(checked?" checked":"")+"> "+escHtml(s);list.appendChild(label);});document.getElementById("sheets").classList.add("show");document.getElementById("options").classList.add("show");document.getElementById("actions").classList.add("show");updateConvertBtnText();loadOptions();document.querySelectorAll("[name=sheets]").forEach(function(c){c.addEventListener("change",onSheetChange);});var sel=[].slice.call(document.querySelectorAll("[name=sheets]:checked")).map(function(c){return c.value;});if(sel.length>0)fetchPreview();}
 var previewTimeout=null;
 function onSheetChange(){clearTimeout(previewTimeout);previewTimeout=setTimeout(function(){var sel=[].slice.call(document.querySelectorAll("[name=sheets]:checked")).map(function(c){return c.value;});if(sel.length>0)fetchPreview();else document.getElementById("preview").classList.remove("show");},300);}
-async function fetchPreview(){var sel=[].slice.call(document.querySelectorAll("[name=sheets]:checked")).map(function(c){return c.value;});if(!sel.length||!currentFile)return;var reader=new FileReader();reader.onload=async function(e){var b64=e.target.result.split(",")[1];try{var resp=await fetch("/preview",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data:b64,sheets:sel})});var data=await resp.json();if(data.success){sheetPreviewData=data.preview||{};renderPreview(sel);}}catch(err){}};reader.readAsDataURL(currentFile);}
+async function fetchPreview(){var sel=[].slice.call(document.querySelectorAll("[name=sheets]:checked")).map(function(c){return c.value;});if(!sel.length||!currentFile)return;var reader=new FileReader();reader.onload=async function(e){var b64=e.target.result.split(",")[1];try{var resp=await fetch("/preview?filename="+encodeURIComponent(currentFileName),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data:b64,sheets:sel})});var data=await resp.json();if(data.success){sheetPreviewData=data.preview||{};renderPreview(sel);}}catch(err){}};reader.readAsDataURL(currentFile);}
 function renderPreview(sel){var body=document.getElementById("previewBody");var ts=0,tc=0;body.innerHTML=sel.map(function(sn){var info=sheetPreviewData[sn]||{shapes:0,connectors:0};ts+=info.shapes||0;tc+=info.connectors||0;return"<div class="preview-row"><span class="sheet-name">"+escHtml(sn)+"</span><span class="counts"><span>"+(info.shapes||0)+" shapes</span><span>"+(info.connectors||0)+" connectors</span></span></div>";}).join("");document.getElementById("totalShapes").textContent=ts;document.getElementById("totalConnectors").textContent=tc;document.getElementById("estSize").textContent="~"+formatSize(2048+ts*200+tc*100);document.getElementById("preview").classList.add("show");}
 function updateConvertBtnText(){var fmt=document.getElementById("outputFormat").value;document.getElementById("convertBtn").textContent="Convert to "+(fmt==="svg"?"SVG":"draw.io");}
 document.getElementById("outputFormat").addEventListener("change",function(){saveOptions();updateConvertBtnText();});
@@ -206,7 +207,7 @@ function showProgress(){document.getElementById("progress").classList.add("show"
 function hideProgress(){document.getElementById("progress").classList.remove("show");resetProgress();}
 function hideResult(){document.getElementById("result").classList.remove("show");}
 function hideError(){document.getElementById("error").classList.remove("show");}
-async function convert(){if(!currentFile)return;var sheets=[].slice.call(document.querySelectorAll("[name=sheets]:checked")).map(function(c){return c.value;});if(!sheets.length){showError("Please select at least one sheet");return;}saveOptions();saveLastSheets(currentFileName,sheets);var format=document.getElementById("outputFormat").value;var includeConnectors=document.getElementById("includeConnectors").checked;var includeCellColors=document.getElementById("includeCellColors").checked;showProgress();setProgress(5,"Reading file...");document.getElementById("convertBtn").disabled=true;hideResult();hideError();var reader=new FileReader();reader.onload=async function(e){var b64=e.target.result.split(",")[1];var params=new URLSearchParams({sheets:sheets.join(","),format:format,connectors:includeConnectors?"1":"0",cellColors:includeCellColors?"1":"0"});try{var response=await fetch("/convert-stream?"+params.toString(),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data:b64})});if(!response.ok){var err=await response.json().catch(function(){return{};});throw new Error(err.error||"Conversion failed (HTTP "+response.status+")");}var reader2=response.body.getReader();var decoder=new TextDecoder();var buffer="",done=false,resultData=null;while(!done){var r=await reader2.read();done=r.done;if(r.value){buffer+=decoder.decode(r.value,{stream:!done});var lines=buffer.split("
+async function convert(){if(!currentFile)return;var sheets=[].slice.call(document.querySelectorAll("[name=sheets]:checked")).map(function(c){return c.value;});if(!sheets.length){showError("Please select at least one sheet");return;}saveOptions();saveLastSheets(currentFileName,sheets);var format=document.getElementById("outputFormat").value;var includeConnectors=document.getElementById("includeConnectors").checked;var includeCellColors=document.getElementById("includeCellColors").checked;showProgress();setProgress(5,"Reading file...");document.getElementById("convertBtn").disabled=true;hideResult();hideError();var reader=new FileReader();reader.onload=async function(e){var b64=e.target.result.split(",")[1];var params=new URLSearchParams({sheets:sheets.join(","),format:format,connectors:includeConnectors?"1":"0",cellColors:includeCellColors?"1":"0"});try{var response=await fetch("/convert-stream?filename="+encodeURIComponent(currentFileName)?"+params.toString(),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data:b64})});if(!response.ok){var err=await response.json().catch(function(){return{};});throw new Error(err.error||"Conversion failed (HTTP "+response.status+")");}var reader2=response.body.getReader();var decoder=new TextDecoder();var buffer="",done=false,resultData=null;while(!done){var r=await reader2.read();done=r.done;if(r.value){buffer+=decoder.decode(r.value,{stream:!done});var lines=buffer.split("
 ");buffer=lines.pop()||"";for(var i=0;i<lines.length;i++){if(lines[i].indexOf("data: ")===0){try{var msg=JSON.parse(lines[i].slice(6));handleStreamMessage(msg);if(msg.type==="complete"||msg.type==="error"){done=true;if(msg.type==="complete")resultData=msg;}}catch(e){}}}}}if(buffer.indexOf("data: ")===0){try{var msg=JSON.parse(buffer.slice(6));handleStreamMessage(msg);if(msg.type==="complete")resultData=msg;}catch(e){}}hideProgress();document.getElementById("convertBtn").disabled=false;if(resultData){addHistory({filename:currentFileName,sheets:sheets,timestamp:Date.now(),outputSize:resultData.size||0});showResult(resultData,format);}}catch(err){hideProgress();document.getElementById("convertBtn").disabled=false;if(err.name!=="AbortError")showError(err.message);}};reader.readAsDataURL(currentFile);}
 function handleStreamMessage(msg){switch(msg.type){case"progress":setProgress(msg.percent||0,msg.text||"Converting...");break;case"complete":setProgress(100,"Done!");break;case"error":hideProgress();document.getElementById("convertBtn").disabled=false;showError(msg.error||"Conversion failed");break;}}
 function showResult(data,format){var size=data.size||0;document.getElementById("resultSize").textContent="Size: "+formatSize(size);var baseName=currentFileName.replace(/\\.[^.]+$/,"");var ext=format==="svg"?".svg":".drawio";var mimeType=format==="svg"?"image/svg+xml":"application/octet-stream";var dlBtn=document.getElementById("downloadBtn");dlBtn.href="data:"+mimeType+";base64,"+data.file;dlBtn.download=baseName+ext;dlBtn.textContent=format==="svg"?"Download SVG":"Download draw.io";document.getElementById("result").classList.add("show");}
@@ -242,7 +243,7 @@ class Handler(BaseHTTPRequestHandler):
                 # Save temp file
                 if TEMP_FILE and os.path.exists(TEMP_FILE):
                     os.unlink(TEMP_FILE)
-                TEMP_FILE = os.path.join(tempfile.gettempdir(), 'temp_upload.xlsx')
+                TEMP_FILE = os.path.join(tempfile.gettempdir(), f'temp_upload.{ext}')
                 with open(TEMP_FILE, 'wb') as f:
                     f.write(data)
 
@@ -279,7 +280,7 @@ class Handler(BaseHTTPRequestHandler):
             selected_sheets = body.get('sheets', [])
             global TEMP_FILE
             if not TEMP_FILE or not os.path.exists(TEMP_FILE):
-                TEMP_FILE = os.path.join(tempfile.gettempdir(), 'temp_upload.xlsx')
+                TEMP_FILE = os.path.join(tempfile.gettempdir(), f'temp_upload.{ext}')
                 with open(TEMP_FILE, 'wb') as f:
                     f.write(data_bytes)
             reader = ExcelReader(TEMP_FILE, sheet_names=selected_sheets if selected_sheets else None)
@@ -324,7 +325,7 @@ class Handler(BaseHTTPRequestHandler):
             data_bytes = base64.b64decode(body.get('data', ''))
 
             if not TEMP_FILE or not os.path.exists(TEMP_FILE):
-                TEMP_FILE = os.path.join(tempfile.gettempdir(), 'temp_upload.xlsx')
+                TEMP_FILE = os.path.join(tempfile.gettempdir(), f'temp_upload.{ext}')
                 with open(TEMP_FILE, 'wb') as f:
                     f.write(data_bytes)
 
@@ -459,7 +460,7 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length).decode())
             data_bytes = base64.b64decode(body.get('data', ''))
             if not TEMP_FILE or not os.path.exists(TEMP_FILE):
-                TEMP_FILE = os.path.join(tempfile.gettempdir(), 'temp_upload.xlsx')
+                TEMP_FILE = os.path.join(tempfile.gettempdir(), f'temp_upload.{ext}')
                 with open(TEMP_FILE, 'wb') as f:
                     f.write(data_bytes)
             reader = ExcelReader(TEMP_FILE, sheet_names=selected_sheets if selected_sheets else None)
