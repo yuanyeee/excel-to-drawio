@@ -945,50 +945,48 @@ class ExcelReader:
         return shapes, connectors
 
     def _extract_cell_shapes(self, worksheet: Worksheet, start_id: int = 1) -> List[Shape]:
-        """Extract shapes from cells (merged cells with content or borders)"""
-        shapes = []
+        """Extract shapes from cells (merged content + styled standalone cells)."""
+        shapes: List[Shape] = []
         grid = CellGrid(worksheet)
         shape_id = start_id
         fill_only_cells: Dict[Tuple[int, int], str] = {}
 
-        # Extract merged cells with content
+        # 1) Merged cells with content are exported as individual blocks.
         for merged_range in worksheet.merged_cells.ranges:
-            cell = worksheet.cell(row=merged_range.min_row, column=merged_range.min_col)
+            top_left = worksheet.cell(row=merged_range.min_row, column=merged_range.min_col)
+            if not top_left.value:
+                continue
 
-            if cell.value:
-                x, y, width, height = grid.get_merged_cell_bounds(
-                    merged_range.min_row,
-                    merged_range.max_row,
-                    merged_range.min_col,
-                    merged_range.max_col,
+            x, y, width, height = grid.get_merged_cell_bounds(
+                merged_range.min_row,
+                merged_range.max_row,
+                merged_range.min_col,
+                merged_range.max_col,
+            )
+            shapes.append(
+                Shape(
+                    shape_id=shape_id,
+                    name=f"Cell_{get_column_letter(merged_range.min_col)}{merged_range.min_row}",
+                    type="rectangle",
+                    x=x,
+                    y=y,
+                    width=width,
+                    height=height,
+                    text=str(top_left.value),
+                    style=self._extract_cell_style(top_left),
+                    source="cell",
                 )
+            )
+            shape_id += 1
 
-                text = str(cell.value) if cell.value else ""
-                style = self._extract_cell_style(cell)
-
-                shapes.append(
-                    Shape(
-                        shape_id=shape_id,
-                        name=f"Cell_{get_column_letter(merged_range.min_col)}{merged_range.min_row}",
-                        type="rectangle",
-                        x=x,
-                        y=y,
-                        width=width,
-                        height=height,
-                        text=text,
-                        style=style,
-                        source="cell",
-                    )
-                )
-                shape_id += 1
-
-        # Extract cells with fill color
+        # 2) Standalone cells: bordered/text cells exported directly,
+        #    fill-only cells are merged later to reduce object count.
         for row in worksheet.iter_rows():
             for cell in row:
                 merged = grid.is_merged_cell(cell.row, cell.column)
-                if merged:
+                if merged is not None:
+                    # Any cell inside merged range is already handled above.
                     min_row, max_row, min_col, max_col = merged
-                    # Merged cells are handled in the dedicated merged-cell loop above.
                     if min_row <= cell.row <= max_row and min_col <= cell.column <= max_col:
                         continue
 
@@ -996,21 +994,17 @@ class ExcelReader:
                 has_border = self._cell_has_visible_border(cell)
                 has_text = cell.value is not None and str(cell.value).strip() != ""
 
-                # Avoid creating noisy shapes for plain text-only cells.
-                if not (has_fill or has_border):
+                # Skip plain cells that only have raw text (no visual style).
+                if not has_fill and not has_border:
                     continue
 
-                # Merge fill-only cells later to reduce draw.io object count.
-                if has_fill and not has_border and not has_text:
+                if has_fill and (not has_border) and (not has_text):
                     fill_color = self._get_cell_fill_hex(cell)
-                    if fill_color:
+                    if fill_color is not None:
                         fill_only_cells[(cell.row, cell.column)] = fill_color
                     continue
 
                 x, y, width, height = grid.get_cell_position(cell.row, cell.column)
-                text = str(cell.value) if has_text else ""
-                style = self._extract_cell_style(cell)
-
                 shapes.append(
                     Shape(
                         shape_id=shape_id,
@@ -1020,61 +1014,13 @@ class ExcelReader:
                         y=y,
                         width=width,
                         height=height,
-                        text=text,
-                        style=style,
+                        text=str(cell.value) if has_text else "",
+                        style=self._extract_cell_style(cell),
                         source="cell",
                     )
                 )
                 shape_id += 1
 
-        # Merge adjacent cells with the same fill color into fewer large shapes.
-        for region in self._merge_fill_only_cells(fill_only_cells):
-            min_row, max_row, min_col, max_col, fill_color = region
-            x, y, _, _ = grid.get_cell_position(min_row, min_col)
-            width = 0
-            for col in range(min_col, max_col + 1):
-                _, _, cell_w, _ = grid.get_cell_position(min_row, col)
-                width += cell_w
-            height = 0
-            for row in range(min_row, max_row + 1):
-                _, _, _, cell_h = grid.get_cell_position(row, min_col)
-                height += cell_h
-
-            shapes.append(
-                Shape(
-                    shape_id=shape_id,
-                    name=f"CellFill_{get_column_letter(min_col)}{min_row}",
-                    type="rectangle",
-                    x=x,
-                    y=y,
-                    width=width,
-                    height=height,
-                    text="",
-                    style={"fillColor": fill_color},
-                    source="cell",
-                )
-            )
-            shape_id += 1
-
-                # Avoid creating noisy shapes for plain text-only cells.
-                if not (has_fill or has_border):
-                    continue
-                shapes.append(
-                    Shape(
-                        shape_id=shape_id,
-                        name=f"Cell_{get_column_letter(cell.column)}{cell.row}",
-                        type="rectangle",
-                        x=x,
-                        y=y,
-                        width=width,
-                        height=height,
-                        text=text,
-                        style=style,
-                        source="cell",
-                    )
-                )
-                shape_id += 1
-        return shapes
 
     def _merge_fill_only_cells(
         self, fill_cells: Dict[Tuple[int, int], str]
@@ -1274,10 +1220,7 @@ class ExcelReader:
                 return None
 
         rgb = rgb.strip()
-        # openpyxl may return custom RGB objects that expose `.value`
-        if hasattr(rgb, "value"):
-            rgb = rgb.value
-        rgb = str(rgb).strip()
+
         if not rgb:
             return None
         if rgb.startswith("#"):
