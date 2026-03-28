@@ -39,11 +39,8 @@ python gui_tkinter.py
 
 1. **「Browse Excel File」**をクリックしてExcelファイルを選択
 2. **変換したいシートにチェックを入れる**
-3. **必要に応じてオプションを設定**:
-   - ☑ Include connectors/lines（線を含む）
-   - ☑ Include cell background colors（背景色を含む）
-4. **「Convert to draw.io」**ボタンをクリック
-5. **保存先を選択して完了**
+3. **「Convert to draw.io」**ボタンをクリック
+4. **保存ファイル名（.drawio）と保存先を指定して完了**
 
 ### コマンドライン
 
@@ -54,6 +51,7 @@ python main.py 入力ファイル.xlsx --sheets "シート1" "シート2"
 オプション:
 - `--sheets`: 変換するシート名を指定（省略すると全シート）
 - `-o 出力ファイル`: 出力先を指定
+- `--include-cells`: セル由来図形を含める（大量オブジェクトになる場合あり）
 
 例：
 ```powershell
