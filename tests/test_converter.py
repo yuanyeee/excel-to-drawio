@@ -15,6 +15,7 @@ from openpyxl.styles import PatternFill
 from converter.excel_reader import ExcelReader, Shape, Connector
 from converter.shape_mapper import ShapeMapper
 from converter.drawio_writer import SimpleDrawioWriter, DrawioWriter
+from converter.excel_to_drawio import convert_excel_to_drawio
 
 
 class TestShapeMapper:
@@ -172,6 +173,37 @@ class TestDrawioWriter:
         finally:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
+
+
+class TestHighLevelConverter:
+    def test_convert_excel_to_drawio_creates_single_file(self):
+        wb = Workbook()
+        ws1 = wb.active
+        ws1.title = "S1"
+        ws1["A1"] = "Hello"
+        ws2 = wb.create_sheet("S2")
+        ws2["A1"] = "World"
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f_in:
+            input_path = f_in.name
+        with tempfile.NamedTemporaryFile(suffix=".drawio", delete=False) as f_out:
+            output_path = f_out.name
+
+        try:
+            wb.save(input_path)
+            result = convert_excel_to_drawio(input_path, output_path)
+
+            assert os.path.exists(output_path)
+            assert result.sheet_names == ["S1", "S2"]
+            with open(output_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            assert "name=\"S1\"" in content
+            assert "name=\"S2\"" in content
+        finally:
+            if os.path.exists(input_path):
+                os.unlink(input_path)
+            if os.path.exists(output_path):
+                os.unlink(output_path)
 
 
 class TestExcelReader:

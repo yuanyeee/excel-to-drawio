@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from converter import ExcelReader, DrawioWriter
+from converter import ExcelReader, convert_excel_to_drawio
 
 
 class ScrollableFrame(ttk.Frame):
@@ -383,19 +383,19 @@ class ExcelToDrawioApp:
 
         def do_convert():
             try:
-                reader = ExcelReader(self.input_file, sheet_names=self.selected_sheets)
-                data = reader.read_all()
-
-                writer = DrawioWriter(data)
                 self.log(f"Writing: {os.path.basename(output_path)}")
-                writer.write(output_path)
+                result = convert_excel_to_drawio(
+                    input_path=self.input_file,
+                    output_path=output_path,
+                    sheet_names=self.selected_sheets,
+                )
 
                 self.output_file = output_path
-                self.log(f"Done! 1 file created ({len(data)} sheet pages)")
+                self.log(f"Done! 1 file created ({len(result.sheet_names)} sheet pages)")
 
                 self.root.after(0, lambda: messagebox.showinfo(
                     "Success!",
-                    f"Conversion complete!\n\nSaved:\n{output_path}\n\nSheets: {len(data)}"
+                    f"Conversion complete!\n\nSaved:\n{output_path}\n\nSheets: {len(result.sheet_names)}"
                 ))
 
                 self.root.after(0, lambda: self.output_path_label.config(text=output_path))
