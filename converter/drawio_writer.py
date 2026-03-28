@@ -45,7 +45,7 @@ class DrawioWriter:
         self, parent: ET.Element, sheet_name: str, data: dict, page_idx: int
     ):
         """Add a page (sheet) to the diagram"""
-        page = ET.SubElement(diagram, "diagram")
+        page = ET.SubElement(parent, "diagram")
         page.set("id", str(page_idx + 1))
         page.set("name", sheet_name)
 
