@@ -184,9 +184,22 @@ document.getElementById("historyModal").addEventListener("click",function(e){if(
 updateHistoryBadge();
 var drop=document.getElementById("drop"),fileInput=document.getElementById("fileInput");
 drop.onclick=function(){fileInput.click();};
-drop.ondragover=function(e){e.preventDefault();drop.classList.add("drag");};
+drop.ondragover=function(e){e.preventDefault();e.stopPropagation();drop.classList.add("drag");return false;};
 drop.ondragleave=function(){drop.classList.remove("drag");};
-drop.ondrop=function(e){e.preventDefault();drop.classList.remove("drag");if(e.dataTransfer.files[0])loadFile(e.dataTransfer.files[0]);};
+drop.ondrop=function(e){
+    e.preventDefault();
+    e.stopPropagation();
+    drop.classList.remove('drag');
+    if(e.dataTransfer.files && e.dataTransfer.files[0]){
+        var file = e.dataTransfer.files[0];
+        if(file.name.match(/\.(xlsx|xls|xlsm)$/i)){
+            loadFile(file);
+        } else {
+            showError('Please select an Excel file (.xlsx, .xls, or .xlsm)');
+        }
+    }
+    return false;
+};
 fileInput.onchange=function(e){if(e.target.files[0])loadFile(e.target.files[0]);};
 function loadFile(file){if(!file.name.match(/\\.(xlsx|xls|xlsm)$/i)){showError("Please select an Excel file (.xlsx, .xls, or .xlsm)");return;}currentFile=file;currentFileName=file.name;sheetPreviewData={};document.getElementById("fileName").textContent=file.name;document.getElementById("fileSize").textContent=formatSize(file.size);document.getElementById("info").classList.add("show");document.getElementById("preview").classList.remove("show");drop.style.display="none";loadSheets(file);}
 async function loadSheets(file){var reader=new FileReader();reader.onload=async function(e){var b64=e.target.result.split(",")[1];try{var resp=await fetch("/sheets?filename="+encodeURIComponent(currentFileName),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data:b64})});var data=await resp.json();if(data.success)showSheets(data.sheets);else showError(data.error);}catch(err){showError(err.message);}};reader.readAsDataURL(file);}
