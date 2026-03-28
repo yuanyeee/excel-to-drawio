@@ -336,6 +336,12 @@ class TestExcelReader:
         importlib.import_module("converter")
         importlib.import_module("gui_tkinter")
 
+    def test_gui_has_no_step3_option_checkboxes(self):
+        gui_path = Path(__file__).resolve().parents[1] / "gui_tkinter.py"
+        content = gui_path.read_text(encoding="utf-8")
+        assert "Include connectors/lines" not in content
+        assert "Include cell-based blocks/colors" not in content
+
     def test_read_all_continues_when_one_sheet_fails(self):
         wb = Workbook()
         ws1 = wb.active

@@ -182,26 +182,10 @@ class ExcelToDrawioApp:
         
         options_label = tk.Label(
             options_container, 
-            text="Step 3: Options:", 
+            text="Step 3: Convert", 
             font=("Arial", 11, "bold")
         )
         options_label.pack(pady=(5, 10))
-        
-        # Include connectors option
-        self.include_connectors = tk.BooleanVar(value=True)
-        tk.Checkbutton(
-            options_container,
-            text="Include connectors/lines",
-            variable=self.include_connectors
-        ).pack(anchor=tk.W, padx=10)
-        
-        # Include cell colors option
-        self.include_cell_colors = tk.BooleanVar(value=False)
-        tk.Checkbutton(
-            options_container,
-            text="Include cell-based blocks/colors",
-            variable=self.include_cell_colors
-        ).pack(anchor=tk.W, padx=10)
         
         # Convert button
         self.convert_btn = tk.Button(
@@ -388,7 +372,6 @@ class ExcelToDrawioApp:
                     input_path=self.input_file,
                     output_path=output_path,
                     sheet_names=self.selected_sheets,
-                    include_cells=self.include_cell_colors.get(),
                 )
 
                 self.output_file = output_path

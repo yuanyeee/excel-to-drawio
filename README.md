@@ -39,11 +39,8 @@ python gui_tkinter.py
 
 1. **「Browse Excel File」**をクリックしてExcelファイルを選択
 2. **変換したいシートにチェックを入れる**
-3. **必要に応じてオプションを設定**:
-   - ☑ Include connectors/lines（線を含む）
-   - ☑ Include cell-based blocks/colors（セル由来のブロック/背景を含む・既定OFF）
-4. **「Convert to draw.io」**ボタンをクリック
-5. **保存ファイル名（.drawio）と保存先を指定して完了**
+3. **「Convert to draw.io」**ボタンをクリック
+4. **保存ファイル名（.drawio）と保存先を指定して完了**
 
 ### コマンドライン
 
