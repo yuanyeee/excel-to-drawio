@@ -93,6 +93,10 @@ class Connector:
 
 class ExcelReader:
     """Read Excel files and extract shapes and cell-based diagrams"""
+    SKIP_FILL_COLORS = {
+        "FFFFFF", "FFFFFE", "F2F2F2", "F3F3F3", "EBEBEB", "E7E6E6", "EEECE1",
+        "D9D9D9", "BFBFBF", "000000", "0D0D0D",
+    }
 
     def __init__(self, filepath: str, sheet_names: list = None, include_cells: bool = True):
         self.filepath = filepath
@@ -980,39 +984,40 @@ class ExcelReader:
         # Extract cells with fill color
         for row in worksheet.iter_rows():
             for cell in row:
-                if not cell.value:
-                    continue
-
                 merged = grid.is_merged_cell(cell.row, cell.column)
                 if merged:
                     min_row, max_row, min_col, max_col = merged
-                    if cell.row != min_row or cell.column != min_col:
+                    # Merged cells are handled in the dedicated merged-cell loop above.
+                    if min_row <= cell.row <= max_row and min_col <= cell.column <= max_col:
                         continue
 
-                has_fill = False
-                if cell.fill and cell.fill.fill_type == "solid":
-                    has_fill = True
+                has_fill = self._cell_has_meaningful_fill(cell)
+                has_border = self._cell_has_visible_border(cell)
+                has_text = cell.value is not None and str(cell.value).strip() != ""
 
-                if has_fill or cell.value:
-                    x, y, width, height = grid.get_cell_position(cell.row, cell.column)
-                    text = str(cell.value) if cell.value else ""
-                    style = self._extract_cell_style(cell)
+                # Avoid creating noisy shapes for plain text-only cells.
+                if not (has_fill or has_border):
+                    continue
 
-                    shapes.append(
-                        Shape(
-                            shape_id=shape_id,
-                            name=f"Cell_{get_column_letter(cell.column)}{cell.row}",
-                            type="rectangle",
-                            x=x,
-                            y=y,
-                            width=width,
-                            height=height,
-                            text=text,
-                            style=style,
-                            source="cell",
-                        )
+                x, y, width, height = grid.get_cell_position(cell.row, cell.column)
+                text = str(cell.value) if has_text else ""
+                style = self._extract_cell_style(cell)
+
+                shapes.append(
+                    Shape(
+                        shape_id=shape_id,
+                        name=f"Cell_{get_column_letter(cell.column)}{cell.row}",
+                        type="rectangle",
+                        x=x,
+                        y=y,
+                        width=width,
+                        height=height,
+                        text=text,
+                        style=style,
+                        source="cell",
                     )
-                    shape_id += 1
+                )
+                shape_id += 1
 
         return shapes
 
@@ -1083,15 +1088,9 @@ class ExcelReader:
         style = {}
 
         try:
-            if cell.fill and cell.fill.fill_type == "solid":
-                fgColor = cell.fill.fgColor
-                if hasattr(fgColor, "rgb") and fgColor.rgb:
-                    rgb = fgColor.rgb
-                    if len(rgb) == 8:
-                        rgb = rgb[2:]
-                    style["fillColor"] = f"#{rgb.upper()}"
-                elif hasattr(fgColor, "theme"):
-                    style["fillColor"] = f"theme:{fgColor.theme}"
+            fill_color = self._get_cell_fill_hex(cell)
+            if fill_color:
+                style["fillColor"] = fill_color
 
             if cell.font:
                 font = cell.font
@@ -1118,6 +1117,38 @@ class ExcelReader:
             pass
 
         return style
+
+    def _cell_has_visible_border(self, cell) -> bool:
+        """Return True when a cell has at least one visible border side."""
+        border = getattr(cell, "border", None)
+        if not border:
+            return False
+        for side_name in ("left", "right", "top", "bottom"):
+            side = getattr(border, side_name, None)
+            if side and side.style and side.style != "none":
+                return True
+        return False
+
+    def _cell_has_meaningful_fill(self, cell) -> bool:
+        """Return True when a cell has a non-default solid fill."""
+        return self._get_cell_fill_hex(cell) is not None
+
+    def _get_cell_fill_hex(self, cell) -> Optional[str]:
+        """Extract meaningful solid fill color as #RRGGBB, otherwise None."""
+        if not cell.fill or cell.fill.fill_type != "solid":
+            return None
+        fg_color = getattr(cell.fill, "fgColor", None)
+        if not fg_color:
+            return None
+        rgb = getattr(fg_color, "rgb", None)
+        if not rgb:
+            return None
+        if len(rgb) == 8:
+            rgb = rgb[2:]
+        rgb = rgb.upper()
+        if rgb in self.SKIP_FILL_COLORS:
+            return None
+        return f"#{rgb}"
 
     def _rgb_to_hex(self, rgb: str) -> str:
         """Convert RGB string to hex color"""

@@ -178,6 +178,30 @@ class TestExcelReader:
         reader = ExcelReader("nonexistent.xlsx")
         assert reader.filepath == "nonexistent.xlsx"
 
+    def test_extract_cell_shapes_skips_plain_text_cells(self):
+        wb = Workbook()
+        ws = wb.active
+        ws["A1"] = "plain text only"
+        ws["B1"] = "filled"
+        ws["B1"].fill = PatternFill(fill_type="solid", fgColor="FF00FF00")
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+            temp_path = f.name
+
+        try:
+            wb.save(temp_path)
+            reader = ExcelReader(temp_path, include_cells=True)
+            shapes, _ = reader._extract_shapes(reader.wb.active)
+
+            cell_shapes = [s for s in shapes if s.source == "cell"]
+            names = [s.name for s in cell_shapes]
+
+            assert "Cell_A1" not in names
+            assert "Cell_B1" in names
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
