@@ -999,14 +999,6 @@ class ExcelReader:
                 # Avoid creating noisy shapes for plain text-only cells.
                 if not (has_fill or has_border):
                     continue
-
-                # Merge fill-only cells later to reduce draw.io object count.
-                if has_fill and not has_border and not has_text:
-                    fill_color = self._get_cell_fill_hex(cell)
-                    if fill_color:
-                        fill_only_cells[(cell.row, cell.column)] = fill_color
-                    continue
-
                 x, y, width, height = grid.get_cell_position(cell.row, cell.column)
                 text = str(cell.value) if has_text else ""
                 style = self._extract_cell_style(cell)
@@ -1026,36 +1018,6 @@ class ExcelReader:
                     )
                 )
                 shape_id += 1
-
-        # Merge adjacent cells with the same fill color into fewer large shapes.
-        for region in self._merge_fill_only_cells(fill_only_cells):
-            min_row, max_row, min_col, max_col, fill_color = region
-            x, y, _, _ = grid.get_cell_position(min_row, min_col)
-            width = 0
-            for col in range(min_col, max_col + 1):
-                _, _, cell_w, _ = grid.get_cell_position(min_row, col)
-                width += cell_w
-            height = 0
-            for row in range(min_row, max_row + 1):
-                _, _, _, cell_h = grid.get_cell_position(row, min_col)
-                height += cell_h
-
-            shapes.append(
-                Shape(
-                    shape_id=shape_id,
-                    name=f"CellFill_{get_column_letter(min_col)}{min_row}",
-                    type="rectangle",
-                    x=x,
-                    y=y,
-                    width=width,
-                    height=height,
-                    text="",
-                    style={"fillColor": fill_color},
-                    source="cell",
-                )
-            )
-            shape_id += 1
-
         return shapes
 
     def _merge_fill_only_cells(

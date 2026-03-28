@@ -7,9 +7,6 @@ import os
 import tempfile
 from pathlib import Path
 
-from openpyxl import Workbook
-from openpyxl.styles import PatternFill
-
 from converter.excel_reader import ExcelReader, Shape, Connector
 from converter.shape_mapper import ShapeMapper
 from converter.drawio_writer import SimpleDrawioWriter, DrawioWriter
@@ -205,28 +202,6 @@ class TestExcelReader:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
 
-    def test_extract_cell_shapes_merges_adjacent_fill_only_cells(self):
-        wb = Workbook()
-        ws = wb.active
-        ws["A1"].fill = PatternFill(fill_type="solid", fgColor="FFFF0000")
-        ws["B1"].fill = PatternFill(fill_type="solid", fgColor="FFFF0000")
-
-        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
-            temp_path = f.name
-
-        try:
-            wb.save(temp_path)
-            reader = ExcelReader(temp_path, include_cells=True)
-            shapes, _ = reader._extract_shapes(reader.wb.active)
-
-            cell_shapes = [s for s in shapes if s.source == "cell"]
-
-            assert len(cell_shapes) == 1
-            assert cell_shapes[0].style.get("fillColor") == "#FF0000"
-            assert cell_shapes[0].width > 914400  # Wider than a single default cell
-        finally:
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
 
 
 if __name__ == "__main__":
