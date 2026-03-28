@@ -118,13 +118,36 @@ class ExcelToDrawioApp:
         sheets_container = ttk.Frame(self.upper_paned)
         self.upper_paned.add(sheets_container, weight=3)
         
-        # Sheets label
+        # Sheets label and select buttons
+        sheets_header = tk.Frame(sheets_container)
+        sheets_header.pack(fill=tk.X, pady=(5, 0))
+        
         sheets_label = tk.Label(
-            sheets_container, 
-            text="Select sheets to convert:", 
+            sheets_header, 
+            text="Select sheets:", 
             font=("Arial", 12, "bold")
         )
-        sheets_label.pack(pady=(5, 5))
+        sheets_label.pack(side=tk.LEFT)
+        
+        select_all_btn = tk.Button(
+            sheets_header,
+            text="All",
+            command=self.select_all_sheets,
+            font=("Arial", 9),
+            padx=8,
+            pady=2
+        )
+        select_all_btn.pack(side=tk.RIGHT, padx=2)
+        
+        select_none_btn = tk.Button(
+            sheets_header,
+            text="None",
+            command=self.deselect_all_sheets,
+            font=("Arial", 9),
+            padx=8,
+            pady=2
+        )
+        select_none_btn.pack(side=tk.RIGHT)
         
         # Scrollable frame for sheet checkboxes
         self.sheets_scroll = ScrollableFrame(sheets_container)
