@@ -65,7 +65,7 @@ def get_html():
         .drop:hover{border-color:var(--accent);background:var(--info-bg)}
         .drop.drag{border-color:var(--accent);background:var(--info-bg)}
         .drop-icon{font-size:48px;margin-bottom:10px}.drop-text{color:var(--text-muted)}.drop-hint{font-size:12px;color:var(--text-muted);margin-top:5px;opacity:.7}
-        input[type=file]{display:none}
+        input[type=file]{margin:15px auto;display:block;padding:10px 20px;background:var(--accent);color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px}input[type=file]:hover{background:var(--accent-hover)}
         .info{background:var(--info-bg);color:var(--info-text);padding:15px;border-radius:8px;margin-bottom:15px;display:none}
         .info.show{display:block}.info-name{font-weight:bold;word-break:break-all;font-size:14px}
         .info-size{font-size:12px;margin-top:5px;opacity:.8}
@@ -145,7 +145,7 @@ def get_html():
         </div>
     </div>
     <div class="card">
-        <div class="drop" id="drop"><div class="drop-icon">&#128193;</div><div class="drop-text">Drop Excel file or click to browse</div><div class="drop-hint">Supports .xlsx, .xls, .xlsm</div></div>
+        <div class="drop" id="drop"><div class="drop-icon">&#128193;</div><div class="drop-text">Drag Excel file here or click button below</div><div class="drop-hint">Supports .xlsx, .xls, .xlsm</div></div>
         <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm">
         <div class="info" id="info"><button class="clear-btn" onclick="clearFile()">Clear</button><div class="info-name" id="fileName"></div><div class="info-size" id="fileSize"></div></div>
         <div class="sheets" id="sheets"><div class="sheets-title">Select sheets to convert:</div><div class="sheet-list" id="sheetList"></div><div class="sheets-actions"><label><input type="checkbox" id="selectAll" checked onchange="toggleAll()"> Select All / Deselect All</label></div></div>
