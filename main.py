@@ -8,7 +8,7 @@ import sys
 import argparse
 from pathlib import Path
 
-from converter import convert_excel_to_drawio
+from converter.excel_to_drawio import convert_excel_to_drawio
 
 
 def main():

@@ -13,7 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from converter import ExcelReader, convert_excel_to_drawio
+from converter.excel_to_drawio import convert_excel_to_drawio
+from openpyxl import load_workbook
 
 
 class ScrollableFrame(ttk.Frame):
@@ -289,10 +290,10 @@ class ExcelToDrawioApp:
         
         def do_load():
             try:
-                reader = ExcelReader(self.input_file)
-                sheets = list(reader.wb.sheetnames)
+                wb = load_workbook(self.input_file, read_only=True, data_only=True)
+                sheets = list(wb.sheetnames)
                 self.sheet_data = {sheet: {"title": sheet} for sheet in sheets}
-                reader.close()
+                wb.close()
                 
                 # Clear previous checkboxes
                 for checkbox in self.sheet_checkboxes.values():

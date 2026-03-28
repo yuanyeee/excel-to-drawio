@@ -102,12 +102,15 @@ class ExcelReader:
         self.filepath = filepath
         self.sheet_names = sheet_names
         self.include_cells = include_cells
-        self.wb = load_workbook(filepath, data_only=True)
+        self.wb = load_workbook(filepath, data_only=True) if Path(filepath).exists() else None
         self._zip_path = filepath  # For accessing raw XML
 
     def read_all(self):
         """Read all sheets and return their shapes"""
         sheets_data = {}
+
+        if self.wb is None:
+            return sheets_data
 
         target_sheets = (
             self.sheet_names
@@ -1269,4 +1272,5 @@ class ExcelReader:
 
     def close(self):
         """Close the workbook"""
-        self.wb.close()
+        if self.wb is not None:
+            self.wb.close()
