@@ -999,10 +999,6 @@ class ExcelReader:
                 # Avoid creating noisy shapes for plain text-only cells.
                 if not (has_fill or has_border):
                     continue
-                x, y, width, height = grid.get_cell_position(cell.row, cell.column)
-                text = str(cell.value) if has_text else ""
-                style = self._extract_cell_style(cell)
-
                 shapes.append(
                     Shape(
                         shape_id=shape_id,
@@ -1148,10 +1144,9 @@ class ExcelReader:
                 if hasattr(font, "color") and font.color:
                     color = font.color
                     if hasattr(color, "rgb") and color.rgb:
-                        rgb = color.rgb
-                        if len(rgb) == 8:
-                            rgb = rgb[2:]
-                        style["fontColor"] = f"#{rgb.upper()}"
+                        rgb = self._normalize_rgb_value(color.rgb)
+                        if rgb:
+                            style["fontColor"] = f"#{rgb}"
 
             if cell.alignment:
                 align = cell.alignment
@@ -1187,25 +1182,39 @@ class ExcelReader:
         fg_color = getattr(cell.fill, "fgColor", None)
         if not fg_color:
             return None
-        rgb = getattr(fg_color, "rgb", None)
-        if not rgb:
-            return None
-        if len(rgb) == 8:
-            rgb = rgb[2:]
-        rgb = rgb.upper()
         if rgb in self.SKIP_FILL_COLORS:
             return None
         return f"#{rgb}"
 
     def _rgb_to_hex(self, rgb: str) -> str:
         """Convert RGB string to hex color"""
-        if not rgb:
+        normalized = self._normalize_rgb_value(rgb)
+        if not normalized:
             return "#000000"
+        return f"#{normalized}"
+
+    def _normalize_rgb_value(self, rgb) -> Optional[str]:
+        """Normalize OpenPyXL RGB-like values to 6-char uppercase hex."""
+        if rgb is None:
+            return None
+
+        # openpyxl may return custom RGB objects that expose `.value`
+        if hasattr(rgb, "value"):
+            rgb = rgb.value
+        rgb = str(rgb).strip()
+        if not rgb:
+            return None
+        if rgb.startswith("#"):
+            rgb = rgb[1:]
+        rgb = rgb.upper()
+
         if len(rgb) == 8:
             rgb = rgb[2:]
-        if len(rgb) == 6:
-            return f"#{rgb.upper()}"
-        return "#000000"
+        if len(rgb) != 6:
+            return None
+        if not re.fullmatch(r"[0-9A-F]{6}", rgb):
+            return None
+        return rgb
 
     def close(self):
         """Close the workbook"""
