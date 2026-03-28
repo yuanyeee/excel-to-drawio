@@ -7,9 +7,9 @@ import os
 import tempfile
 from pathlib import Path
 
-from converter.excel_reader import ExcelReader, Shape
+from converter.excel_reader import ExcelReader, Shape, Connector
 from converter.shape_mapper import ShapeMapper
-from converter.drawio_writer import SimpleDrawioWriter
+from converter.drawio_writer import SimpleDrawioWriter, DrawioWriter
 
 
 class TestShapeMapper:
@@ -126,6 +126,44 @@ class TestSimpleDrawioWriter:
             assert "Box 1" in content
             assert "Box 2" in content
             assert "</mxfile>" in content
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+
+class TestDrawioWriter:
+    """Test multi-page draw.io writer"""
+
+    def test_connector_geometry_uses_source_target_points(self):
+        connector = Connector(
+            shape_id=10,
+            name="Arrow",
+            type="straightConnector1",
+            points=[(0, 0), (914400, 914400)],
+            style={"endArrow": "block"},
+        )
+
+        sheets_data = {
+            "Sheet1": {
+                "shapes": [],
+                "connectors": [connector],
+                "title": "Sheet1",
+            }
+        }
+
+        with tempfile.NamedTemporaryFile(suffix=".drawio", delete=False) as f:
+            temp_path = f.name
+
+        try:
+            writer = DrawioWriter(sheets_data)
+            writer.write(temp_path)
+
+            with open(temp_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            assert 'mxPoint x="0.0" y="0.0" as="sourcePoint"' in content
+            assert 'mxPoint x="96.0" y="96.0" as="targetPoint"' in content
+            assert "<Array>" not in content
         finally:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
