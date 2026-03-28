@@ -1,223 +1,100 @@
 # Excel to draw.io Converter
 
-Convert Excel shapes, diagrams, flowcharts, and ER diagrams to draw.io format.
+Excelの図形、フロー Chart、ER図をdraw.io形式に変換するデスクトップアプリケーションです。
 
-## Features
+## 特徴
 
-- 🔄 Convert shapes from multiple Excel sheets to a single draw.io file
-- 📑 Each Excel sheet becomes a separate tab/page in draw.io
-- 📐 Supports various shape types: rectangles, ellipses, diamonds, connectors, etc.
-- 🎨 Preserves basic styling: fill color, stroke color, text
-- 📊 **Cell-based diagrams**: Merged cells with borders are converted to shapes
-- 📝 **Cell content**: Text in cells is preserved
-- 🖥️ **Two GUI Options**: Desktop GUI (Tkinter) or Web GUI
-- 📊 **Progress bar**: Real-time progress updates for large file conversions
-- 🎛️ **Conversion options**: Include/exclude connectors and cell colors
-- 🔧 **Resizable window**: Desktop GUI adjusts to your screen size
-- 📜 **Scrollable sheet list**: Easily navigate files with many sheets
+- **シンプルな操作**: ファイルを選んで、シートを選択して、変換ボタン押すだけ
+- **Windows標準UI使用**: tkinterで構築、indowsのファイルダイアログをそのまま使用
+- **サイズ調整可能**: ウィンドウのサイズを自由に変更可能
+- **スクロール対応**: 多数シートがあってもスクロールして選択可能
+- **形状変換**: 矩形、楕円、菱形、矢印、コネクター 등을 支持
+- **セル図形対応**: 結合セルや枠線で描いた図形も変換可能
+- **スタイル保存**: 塗りつぶし色、線色、テキスト样式를 保存
 
-## Installation
+## 対応ファイル形式
 
-```bash
-git clone https://github.com/yuanyeee/excel-to-drawio.git
+| 形式 | 説明 | 対応 |
+|------|------|------|
+| .xlsx | Excel 2007以降 | ✅ |
+| .xls | Excel 97-2003 | ✅ |
+| .xlsm | Excel マクロ付き | ✅ |
+
+## インストール
+
+```powershell
 cd excel-to-drawio
 pip install -r requirements.txt
 ```
 
-**Requirements:**
-- Python 3.8+
-- openpyxl >= 3.1.0
-- click >= 8.1.0
+## 使い方
 
-## Usage
+### デスクトップGUI（推奨）
 
-### Desktop GUI (Tkinter) - Recommended
-
-The desktop GUI provides a simple interface with:
-- File browser
-- Sheet selection with scrollable list
-- Conversion options
-- Progress tracking
-- Log output
-
-```bash
+```powershell
 python gui_tkinter.py
 ```
 
-**Features:**
-- Resizable window (default: 900x700, minimum: 700x600)
-- Scrollable sheet list for files with many sheets
-- Paned window layout for flexible organization
-- Native file dialogs
+画面が起動したら：
 
-### Web GUI
+1. **「Browse Excel File」**をクリックしてExcelファイルを選択
+2. **変換したいシートにチェックを入れる**
+3. **必要に応じてオプションを設定**:
+   - ☑ Include connectors/lines（線を含む）
+   - ☑ Include cell background colors（背景色を含む）
+4. **「Convert to draw.io」**ボタンをクリック
+5. **保存先を選択して完了**
 
-The web GUI provides a browser-based interface:
-- Drag & drop file upload
-- Real-time progress streaming
-- Modern, responsive design
+### コマンドライン
 
-```bash
-python serve.py 8765
+```powershell
+python main.py 入力ファイル.xlsx --sheets "シート1" "シート2"
 ```
 
-Then open http://localhost:8765 in your browser.
+オプション:
+- `--sheets`: 変換するシート名を指定（省略すると全シート）
+- `-o 出力ファイル`: 出力先を指定
 
-## GUI Options
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| Include connectors/lines | Include connector and arrow shapes | ✅ On |
-| Include cell background colors | Preserve cell fill colors | ✅ On |
-
-## Command Line Usage
-
-### Basic Usage
-
-```bash
-python main.py input.xlsx
+例：
+```powershell
+python main.py diagram.xlsx --sheets "Sheet1" "Sheet2" -o output.drawio
 ```
 
-### Specify Output File
-
-```bash
-python main.py input.xlsx -o output.drawio
-```
-
-### Convert Specific Sheets
-
-```bash
-python main.py input.xlsx --sheets "Sheet1" "Sheet2"
-```
-
-### Verbose Mode
-
-```bash
-python main.py input.xlsx -v
-```
-
-## Supported File Formats
-
-| Format | Extension | Description | Support Level |
-|--------|-----------|-------------|---------------|
-| Excel Workbook | .xlsx | Default Excel format (2007+) | ✅ Full |
-| Excel Workbook | .xls | Legacy Excel format (97-2003) | ✅ Full |
-| Excel Macro-Enabled | .xlsm | Excel with VBA macros | ✅ Full (macros ignored) |
-
-## Supported Elements
-
-### Drawing Shapes ✅
-| Excel Shape | draw.io Shape |
-|------------|---------------|
-| Rectangle | Rectangle |
-| Rounded Rectangle | Rounded Rectangle |
-| Ellipse | Ellipse |
-| Diamond | Diamond |
-| Text Box | Text |
-| Line | Line |
-| Arrow | Arrow |
-| Connector | Connector |
-| And more... | |
-
-### Cell-Based Diagrams ✅
-| Excel Feature | draw.io Output |
-|--------------|-----------------|
-| Merged cells with text | Rectangle with text |
-| Cell fill color | Rectangle fill color |
-| Cell font (size, bold, color) | Text styling |
-| Cell borders (top/bottom/left/right) | Lines |
-
-### ⚠️ Not Yet Supported
-- Charts (planned)
-- Images (planned)
-- SmartArt (planned)
-
-## How Cell-Based Diagrams Work
-
-Excel often uses merged cells with borders to create diagram-like layouts:
-
-```
-Excel:
-┌───────────┬───────────┐
-│  Title    │          │  <- merged cell
-├─────┬─────┼───────────┤
-│  A  │  B  │     C     │  <- merged cells
-└─────┴─────┴───────────┘
-
-draw.io:
-┌───────────┬───────────┐
-│  Title    │          │
-├─────┬─────┼───────────┤
-│  A  │  B  │     C     │
-└─────┴─────┴───────────┘
-```
-
-## Troubleshooting
-
-### Common Issues
-
-**"Failed to load Excel file" error**
-- Ensure the file is a valid Excel file (.xlsx, .xls, .xlsm)
-- Check that the file is not corrupted or password-protected
-
-**"No sheets selected" but sheets are visible**
-- Make sure at least one sheet checkbox is checked
-- Click on the checkbox itself (not just the label)
-
-**GUI window is too small/large**
-- The window is resizable - drag the edges to adjust
-- Default size is 900x700 pixels
-
-**Sheet list doesn't scroll**
-- The scrollable frame should automatically show a scrollbar when needed
-- Try resizing the window horizontally
-
-**Progress bar doesn't move**
-- For large files, conversion may take time
-- Check the log area for progress messages
-
-### Getting Help
-
-If you encounter issues:
-1. Check the log area for error messages
-2. Try running with the web GUI for more detailed error reporting
-3. Open an issue on GitHub with the error message and file (if possible)
-
-## Development
-
-### Project Structure
+## プロジェクト構成
 
 ```
 excel-to-drawio/
-├── main.py                  # CLI entry point
-├── serve.py                 # GUI web server
-├── gui_tkinter.py           # Desktop GUI (Tkinter)
-├── run.bat                  # Windows launcher
-├── run.sh                   # Mac/Linux launcher
-├── converter/
+├── gui_tkinter.py      # デスクトップGUIアプリ
+├── main.py             # コマンドライン版
+├── converter/          # 変換エンジン
 │   ├── __init__.py
-│   ├── excel_reader.py       # Excel shape extraction + cell extraction
-│   ├── shape_mapper.py       # Shape type mapping
-│   ├── drawio_writer.py      # draw.io XML generation
-│   └── cell_border.py        # Cell border extraction
-├── tests/
-│   └── test_converter.py
-├── requirements.txt
+│   ├── excel_reader.py     # Excel読み込み
+│   ├── shape_mapper.py     # shapeタイプ変換
+│   ├── drawio_writer.py    # draw.io XML出力
+│   └── cell_border.py     # セル枠線処理
+├── tests/              # テスト
+├── requirements.txt    # 依存ライブラリ
 ├── README.md
-├── SPEC.md                  # Detailed specification
-└── .gitignore
+└── SPEC.md           # 仕様書
 ```
 
-### Running Tests
+## 動作環境
 
-```bash
-python -m pytest tests/
-```
+- Python 3.8+
+- Windows / Mac / Linux
+- tkinter（Python標準ライブラリ）
 
-## License
+## トラブルシューティング
 
-MIT License - see LICENSE file for details
+### Q: tkinterのエラーが出る
+A: Pythonが正しくインストールされているか確認してください。公式サイトからPython 3.8以降をインストールしてください。
 
-## Contributing
+### Q: Excelファイルが開けない
+A: ファイルが別のプログラムで開かれていないか確認してください。閉じてから再度試してください。
 
-Pull requests are welcome! Please read the SPEC.md for design guidelines.
+### Q: 変換结果がdraw.ioで開けない
+A: draw.io官方网站から最新版をダウンロードしてください。
+
+## ライセンス
+
+MIT License

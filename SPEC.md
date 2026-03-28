@@ -3,7 +3,7 @@
 ## 1. Project Overview
 
 **Project Name:** Excel to draw.io Converter  
-**Type:** Desktop/Web Desktop GUI Application  
+**Type:** Desktop GUI Application  
 **Core Functionality:** Converts Excel shapes, diagrams, flowcharts, and cell-based diagrams into draw.io XML format  
 **Target Users:** Business analysts, diagram creators, anyone who maintains diagrams in Excel but wants to export to draw.io
 
