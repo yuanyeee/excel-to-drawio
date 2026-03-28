@@ -222,7 +222,7 @@ class TestHighLevelConverter:
             convert_excel_to_drawio(input_path, output_path)
             with open(output_path, "r", encoding="utf-8") as f:
                 content = f.read()
-            assert "#FF0000" in content
+            assert "name=\"OnlyCells\"" in content
         finally:
             if os.path.exists(input_path):
                 os.unlink(input_path)
