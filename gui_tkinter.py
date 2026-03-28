@@ -322,7 +322,8 @@ class ExcelToDrawioApp:
                 
             except Exception as e:
                 self.log(f"Error loading file: {e}")
-                messagebox.showerror("Error", f"Failed to load Excel file:\n{e}")
+                error_message = f"Failed to load Excel file:\n{e}"
+                self.root.after(0, lambda msg=error_message: messagebox.showerror("Error", msg))
                 
         thread = threading.Thread(target=do_load)
         thread.start()
