@@ -8,8 +8,7 @@ import sys
 import argparse
 from pathlib import Path
 
-from converter.excel_reader import ExcelReader
-from converter.drawio_writer import DrawioWriter
+from converter import convert_excel_to_drawio
 
 
 def main():
@@ -43,16 +42,14 @@ def main():
         print(f"Output: {output_path}")
         print(f"Sheets: {args.sheets or 'all'}")
 
-    # Read Excel
-    reader = ExcelReader(str(input_path), sheet_names=args.sheets)
-    sheets_data = reader.read_all()
-
-    # Write draw.io
-    writer = DrawioWriter(sheets_data)
-    writer.write(str(output_path))
+    result = convert_excel_to_drawio(
+        input_path=str(input_path),
+        output_path=str(output_path),
+        sheet_names=args.sheets,
+    )
 
     print(f"\n✅ Success! Created: {output_path}")
-    print(f"   {len(sheets_data)} sheet(s) converted")
+    print(f"   {len(result.sheet_names)} sheet(s) converted")
 
 
 if __name__ == "__main__":
