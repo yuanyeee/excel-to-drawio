@@ -369,7 +369,7 @@ class ExcelToDrawioApp:
                     defaultextension=".drawio",
                     filetypes=[("draw.io files", "*.drawio"), ("All files", "*.*")],
                     initialdir=os.path.dirname(self.input_file) if self.input_file else None,
-                    initialvalue=default_name
+                    initialfile=default_name
                 )
 
                 if not output_file:
