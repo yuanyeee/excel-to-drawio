@@ -118,11 +118,7 @@ class ExcelReader:
         for sheet_name in target_sheets:
             if sheet_name in self.wb.sheetnames:
                 ws = self.wb[sheet_name]
-                try:
-                    shapes, connectors = self._extract_shapes(ws)
-                except Exception:
-                    # Keep processing other sheets even if one sheet fails to parse.
-                    shapes, connectors = [], []
+                shapes, connectors = self._extract_shapes(ws)
                 sheets_data[sheet_name] = {
                     "shapes": shapes,
                     "connectors": connectors,
@@ -983,6 +979,21 @@ class ExcelReader:
             )
             shape_id += 1
 
+        # 2) Standalone cells: bordered/text cells exported directly,
+        #    fill-only cells are merged later to reduce object count.
+        for row in worksheet.iter_rows():
+            for cell in row:
+                merged = grid.is_merged_cell(cell.row, cell.column)
+                if merged is not None:
+                    # Any cell inside merged range is already handled above.
+                    min_row, max_row, min_col, max_col = merged
+                    if min_row <= cell.row <= max_row and min_col <= cell.column <= max_col:
+                        continue
+
+                has_fill = self._cell_has_meaningful_fill(cell)
+                has_border = self._cell_has_visible_border(cell)
+                has_text = cell.value is not None and str(cell.value).strip() != ""
+
                 # Skip plain cells that only have raw text (no visual style).
                 if not has_fill and not has_border:
                     continue
@@ -1010,6 +1021,50 @@ class ExcelReader:
                 )
                 shape_id += 1
 
+
+    def _merge_fill_only_cells(
+        self, fill_cells: Dict[Tuple[int, int], str]
+    ) -> List[Tuple[int, int, int, int, str]]:
+        """
+        Merge adjacent fill-only cells with same color into rectangular regions.
+        Returns tuples: (min_row, max_row, min_col, max_col, color).
+        """
+        merged_regions: List[Tuple[int, int, int, int, str]] = []
+        processed: set = set()
+
+        for row, col in sorted(fill_cells.keys()):
+            if (row, col) in processed:
+                continue
+            color = fill_cells[(row, col)]
+
+            max_col = col
+            while (
+                (row, max_col + 1) in fill_cells
+                and fill_cells[(row, max_col + 1)] == color
+                and (row, max_col + 1) not in processed
+            ):
+                max_col += 1
+
+            max_row = row
+            while True:
+                next_row = max_row + 1
+                all_match = True
+                for candidate_col in range(col, max_col + 1):
+                    key = (next_row, candidate_col)
+                    if (
+                        key not in fill_cells
+                        or fill_cells[key] != color
+                        or key in processed
+                    ):
+                        all_match = False
+                        break
+                if not all_match:
+                    break
+                max_row = next_row
+
+            for r in range(row, max_row + 1):
+                for c in range(col, max_col + 1):
+                    processed.add((r, c))
 
             merged_regions.append((row, max_row, col, max_col, color))
 
