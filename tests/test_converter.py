@@ -7,9 +7,6 @@ import os
 import tempfile
 from pathlib import Path
 
-from openpyxl import Workbook
-from openpyxl.styles import PatternFill
-
 from converter.excel_reader import ExcelReader, Shape, Connector
 from converter.shape_mapper import ShapeMapper
 from converter.drawio_writer import SimpleDrawioWriter, DrawioWriter
