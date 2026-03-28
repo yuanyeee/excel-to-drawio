@@ -949,6 +949,7 @@ class ExcelReader:
         shapes = []
         grid = CellGrid(worksheet)
         shape_id = start_id
+        fill_only_cells: Dict[Tuple[int, int], str] = {}
 
         # Extract merged cells with content
         for merged_range in worksheet.merged_cells.ranges:
@@ -998,7 +999,6 @@ class ExcelReader:
                 # Avoid creating noisy shapes for plain text-only cells.
                 if not (has_fill or has_border):
                     continue
-
                 x, y, width, height = grid.get_cell_position(cell.row, cell.column)
                 text = str(cell.value) if has_text else ""
                 style = self._extract_cell_style(cell)
@@ -1018,8 +1018,55 @@ class ExcelReader:
                     )
                 )
                 shape_id += 1
-
         return shapes
+
+    def _merge_fill_only_cells(
+        self, fill_cells: Dict[Tuple[int, int], str]
+    ) -> List[Tuple[int, int, int, int, str]]:
+        """
+        Merge adjacent fill-only cells with same color into rectangular regions.
+        Returns tuples: (min_row, max_row, min_col, max_col, color).
+        """
+        merged_regions: List[Tuple[int, int, int, int, str]] = []
+        processed: set = set()
+
+        for row, col in sorted(fill_cells.keys()):
+            if (row, col) in processed:
+                continue
+            color = fill_cells[(row, col)]
+
+            max_col = col
+            while (
+                (row, max_col + 1) in fill_cells
+                and fill_cells[(row, max_col + 1)] == color
+                and (row, max_col + 1) not in processed
+            ):
+                max_col += 1
+
+            max_row = row
+            while True:
+                next_row = max_row + 1
+                all_match = True
+                for candidate_col in range(col, max_col + 1):
+                    key = (next_row, candidate_col)
+                    if (
+                        key not in fill_cells
+                        or fill_cells[key] != color
+                        or key in processed
+                    ):
+                        all_match = False
+                        break
+                if not all_match:
+                    break
+                max_row = next_row
+
+            for r in range(row, max_row + 1):
+                for c in range(col, max_col + 1):
+                    processed.add((r, c))
+
+            merged_regions.append((row, max_row, col, max_col, color))
+
+        return merged_regions
 
     def _parse_shape(self, shape, shape_id: int, source: str = "shape") -> Optional[Shape]:
         """Parse a single shape object from openpyxl"""
