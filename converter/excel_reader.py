@@ -118,7 +118,11 @@ class ExcelReader:
         for sheet_name in target_sheets:
             if sheet_name in self.wb.sheetnames:
                 ws = self.wb[sheet_name]
-                shapes, connectors = self._extract_shapes(ws)
+                try:
+                    shapes, connectors = self._extract_shapes(ws)
+                except Exception:
+                    # Keep processing other sheets even if one sheet fails to parse.
+                    shapes, connectors = [], []
                 sheets_data[sheet_name] = {
                     "shapes": shapes,
                     "connectors": connectors,
@@ -1021,6 +1025,35 @@ class ExcelReader:
                 )
                 shape_id += 1
 
+        # 3) Merge same-color adjacent fill-only cells.
+        for min_row, max_row, min_col, max_col, fill_color in self._merge_fill_only_cells(fill_only_cells):
+            x, y, _, _ = grid.get_cell_position(min_row, min_col)
+            width = 0
+            for col in range(min_col, max_col + 1):
+                _, _, cell_width, _ = grid.get_cell_position(min_row, col)
+                width += cell_width
+            height = 0
+            for row in range(min_row, max_row + 1):
+                _, _, _, cell_height = grid.get_cell_position(row, min_col)
+                height += cell_height
+
+            shapes.append(
+                Shape(
+                    shape_id=shape_id,
+                    name=f"CellFill_{get_column_letter(min_col)}{min_row}",
+                    type="rectangle",
+                    x=x,
+                    y=y,
+                    width=width,
+                    height=height,
+                    text="",
+                    style={"fillColor": fill_color},
+                    source="cell",
+                )
+            )
+            shape_id += 1
+
+        return shapes
 
     def _merge_fill_only_cells(
         self, fill_cells: Dict[Tuple[int, int], str]
@@ -1220,7 +1253,6 @@ class ExcelReader:
                 return None
 
         rgb = rgb.strip()
-
         if not rgb:
             return None
         if rgb.startswith("#"):

@@ -7,6 +7,7 @@ import os
 import py_compile
 import tempfile
 from pathlib import Path
+import importlib
 
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill
@@ -269,6 +270,46 @@ class TestExcelReader:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
 
+    def test_excel_reader_module_compiles(self):
+        module_path = Path(__file__).resolve().parents[1] / "converter" / "excel_reader.py"
+        py_compile.compile(str(module_path), doraise=True)
+
+    def test_gui_import_path_compiles_with_converter(self):
+        # Regression guard: catches syntax/indent issues that break
+        # `python gui_tkinter.py` at import time.
+        importlib.import_module("converter")
+        importlib.import_module("gui_tkinter")
+
+    def test_read_all_continues_when_one_sheet_fails(self):
+        wb = Workbook()
+        ws1 = wb.active
+        ws1.title = "OK"
+        wb.create_sheet("BROKEN")
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+            temp_path = f.name
+
+        try:
+            wb.save(temp_path)
+            reader = ExcelReader(temp_path, include_cells=True)
+
+            original_extract_shapes = reader._extract_shapes
+
+            def _fake_extract_shapes(ws):
+                if ws.title == "BROKEN":
+                    raise TypeError("'NoneType' object is not iterable")
+                return original_extract_shapes(ws)
+
+            reader._extract_shapes = _fake_extract_shapes  # type: ignore[method-assign]
+            result = reader.read_all()
+
+            assert "OK" in result
+            assert "BROKEN" in result
+            assert result["BROKEN"]["shapes"] == []
+            assert result["BROKEN"]["connectors"] == []
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
 
 
 if __name__ == "__main__":
