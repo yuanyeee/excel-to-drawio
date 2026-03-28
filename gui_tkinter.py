@@ -306,9 +306,8 @@ class ExcelToDrawioApp:
         def do_load():
             try:
                 reader = ExcelReader(self.input_file)
-                sheets = list(reader.wb.sheetnames)
-                self.sheet_data = {sheet: {"title": sheet} for sheet in sheets}
-                reader.close()
+                self.sheet_data = reader.read_all()
+                sheets = list(self.sheet_data.keys())
                 
                 # Clear previous checkboxes
                 for checkbox in self.sheet_checkboxes.values():
