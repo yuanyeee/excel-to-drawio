@@ -7,9 +7,12 @@ import os
 import tempfile
 from pathlib import Path
 
-from converter.excel_reader import ExcelReader, Shape
+from openpyxl import Workbook
+from openpyxl.styles import PatternFill
+
+from converter.excel_reader import ExcelReader, Shape, Connector
 from converter.shape_mapper import ShapeMapper
-from converter.drawio_writer import SimpleDrawioWriter
+from converter.drawio_writer import SimpleDrawioWriter, DrawioWriter
 
 
 class TestShapeMapper:
@@ -131,6 +134,44 @@ class TestSimpleDrawioWriter:
                 os.unlink(temp_path)
 
 
+class TestDrawioWriter:
+    """Test multi-page draw.io writer"""
+
+    def test_connector_geometry_uses_source_target_points(self):
+        connector = Connector(
+            shape_id=10,
+            name="Arrow",
+            type="straightConnector1",
+            points=[(0, 0), (914400, 914400)],
+            style={"endArrow": "block"},
+        )
+
+        sheets_data = {
+            "Sheet1": {
+                "shapes": [],
+                "connectors": [connector],
+                "title": "Sheet1",
+            }
+        }
+
+        with tempfile.NamedTemporaryFile(suffix=".drawio", delete=False) as f:
+            temp_path = f.name
+
+        try:
+            writer = DrawioWriter(sheets_data)
+            writer.write(temp_path)
+
+            with open(temp_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            assert 'mxPoint x="0.0" y="0.0" as="sourcePoint"' in content
+            assert 'mxPoint x="96.0" y="96.0" as="targetPoint"' in content
+            assert "<Array>" not in content
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+
 class TestExcelReader:
     """Test Excel reader (requires actual Excel file)"""
 
@@ -139,6 +180,53 @@ class TestExcelReader:
         # Actual file reading would require a test Excel file
         reader = ExcelReader("nonexistent.xlsx")
         assert reader.filepath == "nonexistent.xlsx"
+
+    def test_extract_cell_shapes_skips_plain_text_cells(self):
+        wb = Workbook()
+        ws = wb.active
+        ws["A1"] = "plain text only"
+        ws["B1"] = "filled"
+        ws["B1"].fill = PatternFill(fill_type="solid", fgColor="FF00FF00")
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+            temp_path = f.name
+
+        try:
+            wb.save(temp_path)
+            reader = ExcelReader(temp_path, include_cells=True)
+            shapes, _ = reader._extract_shapes(reader.wb.active)
+
+            cell_shapes = [s for s in shapes if s.source == "cell"]
+            names = [s.name for s in cell_shapes]
+
+            assert "Cell_A1" not in names
+            assert "Cell_B1" in names
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    def test_extract_cell_shapes_merges_adjacent_fill_only_cells(self):
+        wb = Workbook()
+        ws = wb.active
+        ws["A1"].fill = PatternFill(fill_type="solid", fgColor="FFFF0000")
+        ws["B1"].fill = PatternFill(fill_type="solid", fgColor="FFFF0000")
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+            temp_path = f.name
+
+        try:
+            wb.save(temp_path)
+            reader = ExcelReader(temp_path, include_cells=True)
+            shapes, _ = reader._extract_shapes(reader.wb.active)
+
+            cell_shapes = [s for s in shapes if s.source == "cell"]
+
+            assert len(cell_shapes) == 1
+            assert cell_shapes[0].style.get("fillColor") == "#FF0000"
+            assert cell_shapes[0].width > 914400  # Wider than a single default cell
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
 
 
 if __name__ == "__main__":

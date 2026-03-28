@@ -43,7 +43,7 @@ python gui_tkinter.py
    - ☑ Include connectors/lines（線を含む）
    - ☑ Include cell background colors（背景色を含む）
 4. **「Convert to draw.io」**ボタンをクリック
-5. **保存先を選択して完了**
+5. **保存ファイル名（.drawio）と保存先を指定して完了**
 
 ### コマンドライン
 
