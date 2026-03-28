@@ -22,14 +22,12 @@ class DrawioWriter:
 
     def write(self, output_path: str):
         """Write all sheets to a single draw.io file with multiple pages"""
-        # Create root diagram
+        # Create root mxfile
         mxfile = self._create_mxfile()
-        diagram = self._create_diagram()
-        mxfile.append(diagram)
 
-        # Add each sheet as a page
+        # Add each sheet as a direct child diagram (no wrapper)
         for idx, (sheet_name, data) in enumerate(self.sheets_data.items()):
-            self._add_page(diagram, sheet_name, data, idx)
+            self._add_page(mxfile, sheet_name, data, idx + 1)
 
         # Write to file
         xml_str = self._prettify(mxfile)
@@ -43,15 +41,8 @@ class DrawioWriter:
         mxfile.set("version", "24.0.0")
         return mxfile
 
-    def _create_diagram(self) -> ET.Element:
-        """Create the diagram element"""
-        diagram = ET.Element("diagram")
-        diagram.set("name", "Pages")
-        diagram.set("id", "0")
-        return diagram
-
     def _add_page(
-        self, diagram: ET.Element, sheet_name: str, data: dict, page_idx: int
+        self, parent: ET.Element, sheet_name: str, data: dict, page_idx: int
     ):
         """Add a page (sheet) to the diagram"""
         page = ET.SubElement(diagram, "diagram")
