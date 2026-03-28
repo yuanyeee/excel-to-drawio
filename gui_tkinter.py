@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from converter import ExcelReader, DrawioWriter
+from converter import ExcelReader, convert_excel_to_drawio
 
 
 class ScrollableFrame(ttk.Frame):
@@ -306,8 +306,9 @@ class ExcelToDrawioApp:
         def do_load():
             try:
                 reader = ExcelReader(self.input_file)
-                self.sheet_data = reader.read_all()
-                sheets = list(self.sheet_data.keys())
+                sheets = list(reader.wb.sheetnames)
+                self.sheet_data = {sheet: {"title": sheet} for sheet in sheets}
+                reader.close()
                 
                 # Clear previous checkboxes
                 for checkbox in self.sheet_checkboxes.values():
@@ -356,59 +357,56 @@ class ExcelToDrawioApp:
         if not self.selected_sheets:
             messagebox.showwarning("No Selection", "Please select at least one sheet")
             return
-        
-        # Ask for output folder
-        folder = filedialog.askdirectory(
-            title="Select folder to save draw.io files",
-            initialdir=os.path.dirname(self.input_file) if self.input_file else None
+
+        # Ask for output file
+        default_name = (
+            Path(self.input_file).with_suffix(".drawio").name
+            if self.input_file
+            else "output.drawio"
         )
-        
-        if not folder:
+        output_path = filedialog.asksaveasfilename(
+            title="Save draw.io file",
+            initialdir=os.path.dirname(self.input_file) if self.input_file else None,
+            initialfile=default_name,
+            defaultextension=".drawio",
+            filetypes=[("draw.io files", "*.drawio"), ("All files", "*.*")],
+        )
+
+        if not output_path:
             self.log("Conversion cancelled")
             return
-        
-        self.output_folder = folder
-        self.log(f"Saving to: {folder}")
+
+        self.output_folder = os.path.dirname(output_path)
+        self.log(f"Saving to: {output_path}")
         self.log("Starting conversion...")
         self.convert_btn.config(state=tk.DISABLED)
-        
+
         def do_convert():
             try:
-                reader = ExcelReader(self.input_file, sheet_names=self.selected_sheets)
-                data = reader.read_all()
-                
-                saved_files = []
-                
-                for sheet_name, sheet_data in data.items():
-                    from converter import DrawioWriter
-                    sheet_data_single = {sheet_name: sheet_data}
-                    writer = DrawioWriter(sheet_data_single)
-                    
-                    # Create safe filename
-                    safe_name = sheet_name.replace('/', '_').replace('\\', '_').replace(':', '_')
-                    output_path = os.path.join(folder, safe_name + '.drawio')
-                    
-                    self.log(f"Writing: {safe_name}.drawio")
-                    writer.write(output_path)
-                    saved_files.append(output_path)
-                
-                self.output_file = saved_files[0] if saved_files else None
-                self.log(f"Done! {len(saved_files)} file(s) created")
-                
+                self.log(f"Writing: {os.path.basename(output_path)}")
+                result = convert_excel_to_drawio(
+                    input_path=self.input_file,
+                    output_path=output_path,
+                    sheet_names=self.selected_sheets,
+                )
+
+                self.output_file = output_path
+                self.log(f"Done! 1 file created ({len(result.sheet_names)} sheet pages)")
+
                 self.root.after(0, lambda: messagebox.showinfo(
                     "Success!",
-                    f"Conversion complete!\n\n{len(saved_files)} file(s) saved to:\n{folder}"
+                    f"Conversion complete!\n\nSaved:\n{output_path}\n\nSheets: {len(result.sheet_names)}"
                 ))
-                
-                self.root.after(0, lambda: self.output_path_label.config(text=folder))
+
+                self.root.after(0, lambda: self.output_path_label.config(text=output_path))
                 self.root.after(0, lambda: self.open_folder_btn.config(state=tk.NORMAL))
-                
+
             except Exception as e:
                 self.log(f"Error: {e}")
                 self.root.after(0, lambda: messagebox.showerror("Error", f"Conversion failed:\n{e}"))
             finally:
                 self.root.after(0, lambda: self.convert_btn.config(state=tk.NORMAL))
-                
+
         thread = threading.Thread(target=do_convert)
         thread.start()
 

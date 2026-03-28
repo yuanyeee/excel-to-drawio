@@ -12,6 +12,7 @@ from .excel_reader import ExcelReader, Shape, Connector
 from .drawio_writer import DrawioWriter, SimpleDrawioWriter
 from .shape_mapper import ShapeMapper
 from .cell_border import CellBorder, CellGrid, extract_borders
+from .excel_to_drawio import convert_excel_to_drawio, ConversionResult
 
 __version__ = "0.2.0"
 __all__ = [
@@ -24,4 +25,6 @@ __all__ = [
     "CellBorder",
     "CellGrid",
     "extract_borders",
+    "convert_excel_to_drawio",
+    "ConversionResult",
 ]
