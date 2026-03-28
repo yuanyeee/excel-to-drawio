@@ -330,6 +330,10 @@ class TestExcelReader:
         module_path = Path(__file__).resolve().parents[1] / "converter" / "excel_reader.py"
         py_compile.compile(str(module_path), doraise=True)
 
+    def test_excel_to_drawio_module_compiles(self):
+        module_path = Path(__file__).resolve().parents[1] / "converter" / "excel_to_drawio.py"
+        py_compile.compile(str(module_path), doraise=True)
+
     def test_gui_import_path_compiles_with_converter(self):
         # Regression guard: catches syntax/indent issues that break
         # `python gui_tkinter.py` at import time.
