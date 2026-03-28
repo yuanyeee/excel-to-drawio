@@ -4,6 +4,7 @@ Tests for Excel to draw.io Converter
 
 import pytest
 import os
+import py_compile
 import tempfile
 from pathlib import Path
 
