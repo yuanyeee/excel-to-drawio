@@ -162,11 +162,25 @@ class DrawioWriter:
                 geo.set("as", "geometry")
                 geo.set("relative", "1")
 
-                Array = ET.SubElement(geo, "Array")
-                for point in conn.points:
-                    mxPoint = ET.SubElement(Array, "mxPoint")
-                    mxPoint.set("x", str(point[0] / 914400 * 96))
-                    mxPoint.set("y", str(point[1] / 914400 * 96))
+                # draw.io expects source/target points on connectors and
+                # optional waypoints under Array as="points".
+                source_point = ET.SubElement(geo, "mxPoint")
+                source_point.set("x", str(conn.points[0][0] / 914400 * 96))
+                source_point.set("y", str(conn.points[0][1] / 914400 * 96))
+                source_point.set("as", "sourcePoint")
+
+                target_point = ET.SubElement(geo, "mxPoint")
+                target_point.set("x", str(conn.points[-1][0] / 914400 * 96))
+                target_point.set("y", str(conn.points[-1][1] / 914400 * 96))
+                target_point.set("as", "targetPoint")
+
+                if len(conn.points) > 2:
+                    points_array = ET.SubElement(geo, "Array")
+                    points_array.set("as", "points")
+                    for point in conn.points[1:-1]:
+                        mx_point = ET.SubElement(points_array, "mxPoint")
+                        mx_point.set("x", str(point[0] / 914400 * 96))
+                        mx_point.set("y", str(point[1] / 914400 * 96))
 
             cell_id += 1
 
