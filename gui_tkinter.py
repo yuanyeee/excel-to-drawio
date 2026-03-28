@@ -368,6 +368,7 @@ class ExcelToDrawioApp:
                     title="Save draw.io file",
                     defaultextension=".drawio",
                     filetypes=[("draw.io files", "*.drawio"), ("All files", "*.*")],
+                    initialdir=os.path.dirname(self.input_file) if self.input_file else None,
                     initialvalue=default_name
                 )
 
@@ -398,6 +399,25 @@ class ExcelToDrawioApp:
         thread = threading.Thread(target=do_convert)
         thread.start()
 
+
+    def open_output_folder(self):
+        if self.output_file:
+            folder = os.path.dirname(self.output_file)
+            if sys.platform == "win32":
+                os.startfile(folder)
+            elif sys.platform == "darwin":
+                subprocess.run(["open", folder])
+            else:
+                subprocess.run(["xdg-open", folder])
+
+    def open_output_file(self):
+        if self.output_file and os.path.exists(self.output_file):
+            if sys.platform == "win32":
+                os.startfile(self.output_file)
+            elif sys.platform == "darwin":
+                subprocess.run(["open", self.output_file])
+            else:
+                subprocess.run(["xdg-open", self.output_file])
 
 def main():
     root = tk.Tk()
