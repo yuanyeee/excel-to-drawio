@@ -388,7 +388,8 @@ class ExcelToDrawioApp:
 
             except Exception as e:
                 self.log(f"Error: {e}")
-                self.root.after(0, lambda: messagebox.showerror("Error", f"Conversion failed:\n{e}"))
+                error_message = f"Conversion failed:\n{e}"
+                self.root.after(0, lambda msg=error_message: messagebox.showerror("Error", msg))
             finally:
                 self.root.after(0, lambda: self.convert_btn.config(state=tk.NORMAL))
 

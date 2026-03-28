@@ -8,6 +8,12 @@ This module orchestrates the existing reader/writer pipeline so that:
 """
 
 
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional
+
+from .drawio_writer import DrawioWriter
+from .excel_reader import ExcelReader
 
 from __future__ import annotations
 
@@ -53,6 +59,10 @@ def convert_excel_to_drawio(
     Returns:
         ConversionResult with selected sheet names and extracted data.
     """
+
+    input_file = Path(input_path)
+    output_file = Path(output_path)
+
     
     input_file = Path(input_path)
     output_file = Path(output_path)
@@ -64,6 +74,10 @@ def convert_excel_to_drawio(
         include_cells=include_cells,
     )
     sheets_data = reader.read_all()
+
+    writer = DrawioWriter(sheets_data)
+    writer.write(str(output_file))
+
     
     
     writer = DrawioWriter(sheets_data)
