@@ -65,7 +65,7 @@ def get_html():
         .drop:hover{border-color:var(--accent);background:var(--info-bg)}
         .drop.drag{border-color:var(--accent);background:var(--info-bg)}
         .drop-icon{font-size:48px;margin-bottom:10px}.drop-text{color:var(--text-muted)}.drop-hint{font-size:12px;color:var(--text-muted);margin-top:5px;opacity:.7}
-        input[type=file]{margin:15px auto;display:block;padding:10px 20px;background:var(--accent);color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px}input[type=file]:hover{background:var(--accent-hover)}
+        input[type=file]::-webkit-file-upload-button{visibility:hidden;width:0}
         .info{background:var(--info-bg);color:var(--info-text);padding:15px;border-radius:8px;margin-bottom:15px;display:none}
         .info.show{display:block}.info-name{font-weight:bold;word-break:break-all;font-size:14px}
         .info-size{font-size:12px;margin-top:5px;opacity:.8}
@@ -145,7 +145,7 @@ def get_html():
         </div>
     </div>
     <div class="card">
-        <div class="drop" id="drop"><div class="drop-icon">&#128193;</div><div class="drop-text">Drag Excel file here or click button below</div><div class="drop-hint">Supports .xlsx, .xls, .xlsm</div></div>
+        <div class="drop" id="drop"><div class="drop-icon">&#128193;</div><div class="drop-text"><b>Click button below to select Excel file</b></div><div style="margin-top:15px;"><input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm" style="padding:12px 25px;background:#667eea;color:white;border:none;border-radius:8px;cursor:pointer;font-size:16px;font-weight:bold;"></div><div class="drop-hint" style="margin-top:15px;">or drag and drop .xlsx, .xls, .xlsm file</div></div>
         <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm">
         <div class="info" id="info"><button class="clear-btn" onclick="clearFile()">Clear</button><div class="info-name" id="fileName"></div><div class="info-size" id="fileSize"></div></div>
         <div class="sheets" id="sheets"><div class="sheets-title">Select sheets to convert:</div><div class="sheet-list" id="sheetList"></div><div class="sheets-actions"><label><input type="checkbox" id="selectAll" checked onchange="toggleAll()"> Select All / Deselect All</label></div></div>
@@ -183,7 +183,7 @@ function formatTime(ts){if(!ts)return"";var d=new Date(ts),now=new Date();var m=
 document.getElementById("historyModal").addEventListener("click",function(e){if(e.target===this)closeHistory();});
 updateHistoryBadge();
 var drop=document.getElementById("drop"),fileInput=document.getElementById("fileInput");
-drop.onclick=function(){fileInput.click();};
+
 drop.ondragover=function(e){e.preventDefault();e.stopPropagation();drop.classList.add("drag");return false;};
 drop.ondragleave=function(){drop.classList.remove("drag");};
 drop.ondrop=function(e){
