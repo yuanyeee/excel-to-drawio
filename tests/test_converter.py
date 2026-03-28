@@ -15,11 +15,7 @@ from openpyxl.styles import PatternFill
 from converter.excel_reader import ExcelReader, Shape, Connector
 from converter.shape_mapper import ShapeMapper
 from converter.drawio_writer import SimpleDrawioWriter, DrawioWriter
-from converter.excel_to_drawio import (
-    convert_excel_to_drawio,
-    _is_noise_shape,
-    _is_noise_connector,
-)
+from converter.excel_to_drawio import convert_excel_to_drawio
 
 
 class TestShapeMapper:
@@ -209,7 +205,7 @@ class TestHighLevelConverter:
             if os.path.exists(output_path):
                 os.unlink(output_path)
 
-    def test_convert_excel_to_drawio_defaults_to_no_cell_shapes(self):
+    def test_convert_excel_to_drawio_defaults_to_include_cell_shapes(self):
         wb = Workbook()
         ws = wb.active
         ws.title = "OnlyCells"
@@ -226,50 +222,12 @@ class TestHighLevelConverter:
             convert_excel_to_drawio(input_path, output_path)
             with open(output_path, "r", encoding="utf-8") as f:
                 content = f.read()
-            assert "#FF0000" not in content
+            assert "#FF0000" in content
         finally:
             if os.path.exists(input_path):
                 os.unlink(input_path)
             if os.path.exists(output_path):
                 os.unlink(output_path)
-
-    def test_noise_filter_removes_tiny_empty_shape(self):
-        shape = Shape(
-            shape_id=1,
-            name="noise",
-            type="rectangle",
-            x=0,
-            y=0,
-            width=10000,   # ~1px
-            height=10000,  # ~1px
-            text="",
-            style={"fillColor": "#FFFFFF", "strokeColor": "#D9D9D9"},
-        )
-        assert _is_noise_shape(shape) is True
-
-    def test_noise_filter_keeps_text_shape(self):
-        shape = Shape(
-            shape_id=2,
-            name="label",
-            type="rectangle",
-            x=0,
-            y=0,
-            width=914400,
-            height=457200,
-            text="Keep me",
-            style={"fillColor": "#FFFFFF", "strokeColor": "#D9D9D9"},
-        )
-        assert _is_noise_shape(shape) is False
-
-    def test_noise_filter_removes_short_light_connector(self):
-        conn = Connector(
-            shape_id=3,
-            name="noise_conn",
-            type="straightConnector1",
-            points=[(0, 0), (10000, 10000)],  # very short
-            style={"strokeColor": "#D9D9D9"},
-        )
-        assert _is_noise_connector(conn) is True
 
 
 class TestExcelReader:

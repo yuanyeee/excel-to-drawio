@@ -52,7 +52,6 @@ def main():
         input_path=str(input_path),
         output_path=str(output_path),
         sheet_names=args.sheets,
-        include_cells=args.include_cells,
     )
 
     print(f"\n✅ Success! Created: {output_path}")
