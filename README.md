@@ -10,38 +10,67 @@ Convert Excel shapes, diagrams, flowcharts, and ER diagrams to draw.io format.
 - 🎨 Preserves basic styling: fill color, stroke color, text
 - 📊 **Cell-based diagrams**: Merged cells with borders are converted to shapes
 - 📝 **Cell content**: Text in cells is preserved
-- 🖥️ **GUI Mode**: Easy-to-use web interface (no command line needed)
+- 🖥️ **Two GUI Options**: Desktop GUI (Tkinter) or Web GUI
 - 📊 **Progress bar**: Real-time progress updates for large file conversions
-- 🎛️ **Conversion options**: Output format (draw.io/SVG), include/exclude connectors and cell colors
-- 💾 **Settings persistence**: Options saved in localStorage between sessions
+- 🎛️ **Conversion options**: Include/exclude connectors and cell colors
+- 🔧 **Resizable window**: Desktop GUI adjusts to your screen size
+- 📜 **Scrollable sheet list**: Easily navigate files with many sheets
 
-## Quick Start - GUI Mode (Recommended)
+## Installation
 
-### Windows / Mac / Linux
+```bash
+git clone https://github.com/yuanyeee/excel-to-drawio.git
+cd excel-to-drawio
+pip install -r requirements.txt
+```
 
-1. Download or clone this repository
-2. Double-click `run.bat` (Windows) or `run.sh` (Mac/Linux)
-3. Open http://localhost:8765 in your browser
-4. Drag & drop your Excel file
-5. Select sheets to convert
-6. Configure options (format, connectors, cell colors)
-7. Click "Convert" and download
+**Requirements:**
+- Python 3.8+
+- openpyxl >= 3.1.0
+- click >= 8.1.0
 
-#### GUI Options
+## Usage
+
+### Desktop GUI (Tkinter) - Recommended
+
+The desktop GUI provides a simple interface with:
+- File browser
+- Sheet selection with scrollable list
+- Conversion options
+- Progress tracking
+- Log output
+
+```bash
+python gui_tkinter.py
+```
+
+**Features:**
+- Resizable window (default: 900x700, minimum: 700x600)
+- Scrollable sheet list for files with many sheets
+- Paned window layout for flexible organization
+- Native file dialogs
+
+### Web GUI
+
+The web GUI provides a browser-based interface:
+- Drag & drop file upload
+- Real-time progress streaming
+- Modern, responsive design
+
+```bash
+python serve.py 8765
+```
+
+Then open http://localhost:8765 in your browser.
+
+## GUI Options
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| Output Format | draw.io (.drawio) or SVG (.svg) | draw.io |
 | Include connectors/lines | Include connector and arrow shapes | ✅ On |
 | Include cell background colors | Preserve cell fill colors | ✅ On |
 
 ## Command Line Usage
-
-### Installation
-
-```bash
-pip install openpyxl click
-```
 
 ### Basic Usage
 
@@ -66,6 +95,14 @@ python main.py input.xlsx --sheets "Sheet1" "Sheet2"
 ```bash
 python main.py input.xlsx -v
 ```
+
+## Supported File Formats
+
+| Format | Extension | Description | Support Level |
+|--------|-----------|-------------|---------------|
+| Excel Workbook | .xlsx | Default Excel format (2007+) | ✅ Full |
+| Excel Workbook | .xls | Legacy Excel format (97-2003) | ✅ Full |
+| Excel Macro-Enabled | .xlsm | Excel with VBA macros | ✅ Full (macros ignored) |
 
 ## Supported Elements
 
@@ -115,44 +152,46 @@ draw.io:
 └─────┴─────┴───────────┘
 ```
 
+## Troubleshooting
+
+### Common Issues
+
+**"Failed to load Excel file" error**
+- Ensure the file is a valid Excel file (.xlsx, .xls, .xlsm)
+- Check that the file is not corrupted or password-protected
+
+**"No sheets selected" but sheets are visible**
+- Make sure at least one sheet checkbox is checked
+- Click on the checkbox itself (not just the label)
+
+**GUI window is too small/large**
+- The window is resizable - drag the edges to adjust
+- Default size is 900x700 pixels
+
+**Sheet list doesn't scroll**
+- The scrollable frame should automatically show a scrollbar when needed
+- Try resizing the window horizontally
+
+**Progress bar doesn't move**
+- For large files, conversion may take time
+- Check the log area for progress messages
+
+### Getting Help
+
+If you encounter issues:
+1. Check the log area for error messages
+2. Try running with the web GUI for more detailed error reporting
+3. Open an issue on GitHub with the error message and file (if possible)
+
 ## Development
 
-### Setup
-
-```bash
-git clone https://github.com/yuanyeee/excel-to-drawio.git
-cd excel-to-drawio
-pip install -r requirements.txt
-```
-
-### Run GUI Server
-
-```bash
-python serve.py [port]
-# Default port: 8765
-# Open http://localhost:8765 in browser
-```
-
-> **Note**: The GUI uses Server-Sent Events (SSE) for real-time progress streaming. The `/convert-stream` endpoint provides live conversion progress, while `/convert` remains available for backward compatibility.
-
-### Run CLI
-
-```bash
-python main.py input.xlsx
-```
-
-### Test
-
-```bash
-python -m pytest tests/
-```
-
-## Project Structure
+### Project Structure
 
 ```
 excel-to-drawio/
 ├── main.py                  # CLI entry point
 ├── serve.py                 # GUI web server
+├── gui_tkinter.py           # Desktop GUI (Tkinter)
 ├── run.bat                  # Windows launcher
 ├── run.sh                   # Mac/Linux launcher
 ├── converter/
@@ -165,13 +204,20 @@ excel-to-drawio/
 │   └── test_converter.py
 ├── requirements.txt
 ├── README.md
+├── SPEC.md                  # Detailed specification
 └── .gitignore
+```
+
+### Running Tests
+
+```bash
+python -m pytest tests/
 ```
 
 ## License
 
-MIT License
+MIT License - see LICENSE file for details
 
 ## Contributing
 
-Pull requests are welcome!
+Pull requests are welcome! Please read the SPEC.md for design guidelines.
