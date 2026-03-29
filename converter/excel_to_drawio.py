@@ -1,9 +1,9 @@
 """
 High-level Excel -> draw.io conversion entrypoint.
 
-Default behavior uses the maintained ExcelReader/DrawioWriter pipeline.
-For backward-compatibility and reference, the previous self-contained OOXML
-parser is also kept in this file as a legacy conversion path.
+Default behavior prioritizes the legacy direct-OOXML converter.
+The maintained ExcelReader/DrawioWriter pipeline remains available via
+`engine="pipeline"` when explicitly selected.
 """
 
 
@@ -549,7 +549,7 @@ def convert_excel_to_drawio_legacy(
     )
 
 
-# === Preferred maintained path =================================================
+# === Public entrypoint =========================================================
 def convert_excel_to_drawio(
     input_path: str,
     output_path: str,
