@@ -81,7 +81,7 @@ def _legacy_local(tag: str) -> str:
 
     Returns:
         ConversionResult with selected sheet names and extracted data.
-    """
+    
 
     input_file = Path(input_path)
     output_file = Path(output_path)
