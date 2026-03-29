@@ -229,6 +229,98 @@ class TestHighLevelConverter:
             if os.path.exists(output_path):
                 os.unlink(output_path)
 
+    def test_convert_excel_to_drawio_legacy_engine_creates_output(self):
+        wb = Workbook()
+        ws1 = wb.active
+        ws1.title = "LegacyS1"
+        ws1["A1"] = "Hello Legacy"
+        ws2 = wb.create_sheet("LegacyS2")
+        ws2["B2"] = "World Legacy"
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f_in:
+            input_path = f_in.name
+        with tempfile.NamedTemporaryFile(suffix=".drawio", delete=False) as f_out:
+            output_path = f_out.name
+
+        try:
+            wb.save(input_path)
+            result = convert_excel_to_drawio(
+                input_path,
+                output_path,
+                engine="legacy",
+            )
+
+            assert os.path.exists(output_path)
+            assert result.sheet_names == ["LegacyS1", "LegacyS2"]
+            with open(output_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            assert "name=\"LegacyS1\"" in content
+            assert "name=\"LegacyS2\"" in content
+        finally:
+            if os.path.exists(input_path):
+                os.unlink(input_path)
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+
+    def test_convert_excel_to_drawio_legacy_engine_respects_sheet_filter(self):
+        wb = Workbook()
+        ws1 = wb.active
+        ws1.title = "KeepMe"
+        ws1["A1"] = "A"
+        ws2 = wb.create_sheet("SkipMe")
+        ws2["A1"] = "B"
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f_in:
+            input_path = f_in.name
+        with tempfile.NamedTemporaryFile(suffix=".drawio", delete=False) as f_out:
+            output_path = f_out.name
+
+        try:
+            wb.save(input_path)
+            result = convert_excel_to_drawio(
+                input_path=input_path,
+                output_path=output_path,
+                sheet_names=["KeepMe"],
+                engine="legacy",
+            )
+
+            assert result.sheet_names == ["KeepMe"]
+            with open(output_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            assert "name=\"KeepMe\"" in content
+            assert "name=\"SkipMe\"" not in content
+        finally:
+            if os.path.exists(input_path):
+                os.unlink(input_path)
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+
+    def test_convert_excel_to_drawio_uses_legacy_by_default(self):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "DefaultLegacy"
+        ws["A1"] = "X"
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f_in:
+            input_path = f_in.name
+        with tempfile.NamedTemporaryFile(suffix=".drawio", delete=False) as f_out:
+            output_path = f_out.name
+
+        try:
+            wb.save(input_path)
+            convert_excel_to_drawio(input_path=input_path, output_path=output_path)
+
+            with open(output_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            # legacy writer path keeps historical mxfile host value
+            assert 'host="excel-to-drawio"' in content
+        finally:
+            if os.path.exists(input_path):
+                os.unlink(input_path)
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+
 
 class TestExcelReader:
     """Test Excel reader (requires actual Excel file)"""
@@ -329,6 +421,23 @@ class TestExcelReader:
     def test_excel_reader_module_compiles(self):
         module_path = Path(__file__).resolve().parents[1] / "converter" / "excel_reader.py"
         py_compile.compile(str(module_path), doraise=True)
+
+    def test_excel_to_drawio_module_compiles(self):
+        module_path = Path(__file__).resolve().parents[1] / "converter" / "excel_to_drawio.py"
+        py_compile.compile(str(module_path), doraise=True)
+
+    def test_excel_to_drawio_has_no_fullwidth_parentheses(self):
+        module_path = Path(__file__).resolve().parents[1] / "converter" / "excel_to_drawio.py"
+        content = module_path.read_text(encoding="utf-8")
+        assert "（" not in content
+        assert "）" not in content
+
+    def test_excel_to_drawio_has_no_orphan_args_block_after_legacy_local(self):
+        module_path = Path(__file__).resolve().parents[1] / "converter" / "excel_to_drawio.py"
+        lines = module_path.read_text(encoding="utf-8").splitlines()
+        head = "\n".join(lines[:140])
+        assert "def _legacy_local" in head
+        assert "\n    Args:\n" not in head
 
     def test_gui_import_path_compiles_with_converter(self):
         # Regression guard: catches syntax/indent issues that break
