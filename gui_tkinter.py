@@ -188,25 +188,6 @@ class ExcelToDrawioApp:
         )
         options_label.pack(pady=(5, 10))
 
-        # Engine selection
-        self.engine_var = tk.StringVar(value="legacy")
-        engine_frame = ttk.LabelFrame(options_container, text="Engine")
-        engine_frame.pack(fill=tk.X, padx=5, pady=(0, 10))
-        tk.Radiobutton(
-            engine_frame,
-            text="Legacy (default)",
-            variable=self.engine_var,
-            value="legacy",
-            anchor=tk.W,
-        ).pack(fill=tk.X, padx=6, pady=2)
-        tk.Radiobutton(
-            engine_frame,
-            text="Pipeline",
-            variable=self.engine_var,
-            value="pipeline",
-            anchor=tk.W,
-        ).pack(fill=tk.X, padx=6, pady=(0, 4))
-        
         # Convert button
         self.convert_btn = tk.Button(
             options_container,

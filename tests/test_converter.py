@@ -480,8 +480,13 @@ class TestExcelReader:
         content = gui_path.read_text(encoding="utf-8")
         assert "Include connectors/lines" not in content
         assert "Include cell-based blocks/colors" not in content
-        assert "Legacy (default)" in content
-        assert "Pipeline" in content
+        assert "Legacy (default)" not in content
+        assert "Pipeline" not in content
+
+    def test_desktop_app_entrypoint_exists(self):
+        desktop_path = Path(__file__).resolve().parents[1] / "desktop_app.py"
+        content = desktop_path.read_text(encoding="utf-8")
+        assert "from gui_tkinter import main" in content
 
     def test_read_all_continues_when_one_sheet_fails(self):
         wb = Workbook()
