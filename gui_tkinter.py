@@ -374,6 +374,7 @@ class ExcelToDrawioApp:
                     input_path=self.input_file,
                     output_path=output_path,
                     sheet_names=self.selected_sheets,
+                    engine=self.engine_var.get(),
                 )
 
                 self.output_file = output_path
