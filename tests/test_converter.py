@@ -295,7 +295,7 @@ class TestHighLevelConverter:
             if os.path.exists(output_path):
                 os.unlink(output_path)
 
-    def test_convert_excel_to_drawio_uses_legacy_by_default(self):
+    def test_convert_excel_to_drawio_uses_legacy_with_pipeline_fallback(self):
         wb = Workbook()
         ws = wb.active
         ws.title = "DefaultLegacy"
@@ -313,8 +313,38 @@ class TestHighLevelConverter:
             with open(output_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
-            # legacy writer path keeps historical mxfile host value
-            assert 'host="excel-to-drawio"' in content
+            # Legacy is attempted first, but this workbook has no legacy-detectable
+            # drawings so converter falls back to pipeline output.
+            assert 'host="Claude"' in content
+        finally:
+            if os.path.exists(input_path):
+                os.unlink(input_path)
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+
+    def test_convert_excel_to_drawio_legacy_falls_back_to_pipeline_when_empty(self):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Fallback"
+        ws["B2"] = ""
+        ws["B2"].fill = PatternFill(fill_type="solid", fgColor="FF00FF00")
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f_in:
+            input_path = f_in.name
+        with tempfile.NamedTemporaryFile(suffix=".drawio", delete=False) as f_out:
+            output_path = f_out.name
+
+        try:
+            wb.save(input_path)
+            convert_excel_to_drawio(input_path=input_path, output_path=output_path, engine="legacy")
+
+            with open(output_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            # Legacy parser has no content for this workbook, so converter
+            # should auto-fallback to pipeline output.
+            assert 'host="Claude"' in content
+            assert 'name="Fallback"' in content
         finally:
             if os.path.exists(input_path):
                 os.unlink(input_path)
@@ -450,6 +480,8 @@ class TestExcelReader:
         content = gui_path.read_text(encoding="utf-8")
         assert "Include connectors/lines" not in content
         assert "Include cell-based blocks/colors" not in content
+        assert "Legacy (default)" in content
+        assert "Pipeline" in content
 
     def test_read_all_continues_when_one_sheet_fails(self):
         wb = Workbook()

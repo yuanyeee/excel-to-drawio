@@ -571,12 +571,23 @@ def convert_excel_to_drawio(
         ConversionResult with selected sheet names and extracted data.
     """
     if engine == "legacy":
-        return convert_excel_to_drawio_legacy(
+        legacy_result = convert_excel_to_drawio_legacy(
             input_path=input_path,
             output_path=output_path,
             sheet_names=sheet_names,
             include_cells=include_cells,
         )
+        has_content = any(
+            (page.get("shapes") or page.get("connectors"))
+            for page in legacy_result.sheets_data.values()
+        )
+        if has_content:
+            return legacy_result
+
+        # Legacy parser cannot represent several modern/complex drawing patterns
+        # (e.g. deeply grouped shapes). In that case, transparently fall back to
+        # the maintained reader/writer pipeline so output is not empty.
+        engine = "pipeline"
 
     input_file = Path(input_path)
     output_file = Path(output_path)
