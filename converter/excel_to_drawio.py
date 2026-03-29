@@ -555,7 +555,7 @@ def convert_excel_to_drawio(
     output_path: str,
     sheet_names: Optional[List[str]] = None,
     include_cells: bool = True,
-    engine: Literal["pipeline", "legacy"] = "pipeline",
+    engine: Literal["pipeline", "legacy"] = "legacy",
 ) -> ConversionResult:
     """
     Convert an Excel workbook to a draw.io file.
@@ -565,7 +565,7 @@ def convert_excel_to_drawio(
         output_path: Path to output .drawio file.
         sheet_names: Optional list of target sheet names. If omitted, all sheets.
         include_cells: Whether to include cell-based objects (fills/borders/labels).
-        engine: "pipeline" (default) or "legacy".
+        engine: "legacy" (default) or "pipeline".
 
     Returns:
         ConversionResult with selected sheet names and extracted data.
