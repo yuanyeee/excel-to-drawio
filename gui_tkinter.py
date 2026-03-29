@@ -187,6 +187,25 @@ class ExcelToDrawioApp:
             font=("Arial", 11, "bold")
         )
         options_label.pack(pady=(5, 10))
+
+        # Engine selection
+        self.engine_var = tk.StringVar(value="legacy")
+        engine_frame = ttk.LabelFrame(options_container, text="Engine")
+        engine_frame.pack(fill=tk.X, padx=5, pady=(0, 10))
+        tk.Radiobutton(
+            engine_frame,
+            text="Legacy (default)",
+            variable=self.engine_var,
+            value="legacy",
+            anchor=tk.W,
+        ).pack(fill=tk.X, padx=6, pady=2)
+        tk.Radiobutton(
+            engine_frame,
+            text="Pipeline",
+            variable=self.engine_var,
+            value="pipeline",
+            anchor=tk.W,
+        ).pack(fill=tk.X, padx=6, pady=(0, 4))
         
         # Convert button
         self.convert_btn = tk.Button(
@@ -322,7 +341,8 @@ class ExcelToDrawioApp:
                 
             except Exception as e:
                 self.log(f"Error loading file: {e}")
-                messagebox.showerror("Error", f"Failed to load Excel file:\n{e}")
+                error_message = f"Failed to load Excel file:\n{e}"
+                self.root.after(0, lambda msg=error_message: messagebox.showerror("Error", msg))
                 
         thread = threading.Thread(target=do_load)
         thread.start()
@@ -373,6 +393,7 @@ class ExcelToDrawioApp:
                     input_path=self.input_file,
                     output_path=output_path,
                     sheet_names=self.selected_sheets,
+                    engine=self.engine_var.get(),
                 )
 
                 self.output_file = output_path
@@ -388,7 +409,8 @@ class ExcelToDrawioApp:
 
             except Exception as e:
                 self.log(f"Error: {e}")
-                self.root.after(0, lambda: messagebox.showerror("Error", f"Conversion failed:\n{e}"))
+                error_message = f"Conversion failed:\n{e}"
+                self.root.after(0, lambda msg=error_message: messagebox.showerror("Error", msg))
             finally:
                 self.root.after(0, lambda: self.convert_btn.config(state=tk.NORMAL))
 
