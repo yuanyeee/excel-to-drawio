@@ -6,7 +6,6 @@ The maintained ExcelReader/DrawioWriter pipeline remains available via
 `engine="pipeline"` when explicitly selected.
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,6 +45,10 @@ LEGACY_SKIP_FILL_COLORS = {
     "D9D9D9", "BFBFBF", "000000", "0D0D0D",
 }
 
+import zipfile, html, sys, re
+import xml.etree.ElementTree as ET
+from collections import defaultdict
+from math import ceil
 
 @dataclass
 class _LegacyDrawioShape:
@@ -57,6 +60,9 @@ class _LegacyDrawioShape:
     style: Dict[str, str]
     shape_type: str = "rectangle"
 
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional
 
 @dataclass
 class _LegacyDrawioConnector:
@@ -66,11 +72,19 @@ class _LegacyDrawioConnector:
 
 def _legacy_local(tag: str) -> str:
     return tag.split("}")[-1] if "}" in tag else tag
+    """
+    Args:
+        input_path: Path to source Excel file.
+        output_path: Path to output .drawio file.
+        sheet_names: Optional list of target sheet names. If omitted, all sheets.
+        include_cells: Whether to include cell-based objects (fills/borders/labels).
 
+    Returns:
+        ConversionResult with selected sheet names and extracted data.
+    """
 
-def _to_px(emu: float) -> float:
-    return emu / EMU_PER_PX
-
+    input_file = Path(input_path)
+    output_file = Path(output_path)
 
 def _legacy_normalize_hex_color(value: Optional[str]) -> Optional[str]:
     if not value:
@@ -118,11 +132,12 @@ def _legacy_extract_sp_style(sp_pr: Optional[ET.Element]) -> Dict[str, str]:
             except ValueError:
                 pass
 
-        tail_end = ln.find(f"{{{A_NS}}}tailEnd")
-        if tail_end is not None and tail_end.get("type"):
-            style["endArrow"] = tail_end.get("type")
+# 先導/後続コネクター形状セット
+OFFPAGE_CONNECTOR_PRSTS = {'flowChartOffpageConnector', 'homePlate', 'pentagon'}
 
-    return style
+# 先導/後続ラベル検出パターン（"2", "D1", "DA", "ZZ" 等）
+# 小さな描画シェイプのテキストがこのパターンにマッチ → Off Page Connector形状に統一
+OFFPAGE_LABEL_RE = re.compile(r'[A-Z]{1,2}\d?|\d{1,2}')
 
 
 def _legacy_extract_text(sp_elem: ET.Element) -> str:
@@ -131,39 +146,129 @@ def _legacy_extract_text(sp_elem: ET.Element) -> str:
         return ""
     return "".join((t.text or "") for t in tx_body.iter(f"{{{A_NS}}}t")).strip()
 
+def emu_px(emu):
+    return emu / EMU_PER_PX / SCALE
 
 def _legacy_parse_anchor_origin(anchor: ET.Element) -> Tuple[float, float]:
     from_elem = anchor.find(f"{{{XDR_NS}}}from")
     if from_elem is None:
         return 0.0, 0.0
 
-    col = int((from_elem.findtext(f"{{{XDR_NS}}}col") or "0"))
-    col_off = int((from_elem.findtext(f"{{{XDR_NS}}}colOff") or "0"))
-    row = int((from_elem.findtext(f"{{{XDR_NS}}}row") or "0"))
-    row_off = int((from_elem.findtext(f"{{{XDR_NS}}}rowOff") or "0"))
 
-    x = col * DEFAULT_COL_EMU + col_off
-    y = row * DEFAULT_ROW_EMU + row_off
-    return float(x), float(y)
 
 
 def _legacy_parse_xfrm(sp_pr: Optional[ET.Element], anchor_x: float, anchor_y: float) -> Tuple[float, float, float, float]:
     if sp_pr is None:
         return anchor_x, anchor_y, 100 * EMU_PER_PX, 40 * EMU_PER_PX
 
-    xfrm = sp_pr.find(f"{{{A_NS}}}xfrm")
-    if xfrm is None:
-        return anchor_x, anchor_y, 100 * EMU_PER_PX, 40 * EMU_PER_PX
+def col_letter_to_idx(letters):
+    n = 0
+    for ch in letters.upper():
+        n = n * 26 + ord(ch) - 64
+    return n - 1
 
-    off = xfrm.find(f"{{{A_NS}}}off")
-    ext = xfrm.find(f"{{{A_NS}}}ext")
+def cell_ref(ref):
+    m = re.match(r'([A-Z]+)(\d+)', ref)
+    if not m:
+        raise ValueError(f'Invalid cell ref: {ref}')
+    return col_letter_to_idx(m.group(1)), int(m.group(2)) - 1
 
-    x = anchor_x + int(off.get("x", "0")) if off is not None else anchor_x
-    y = anchor_y + int(off.get("y", "0")) if off is not None else anchor_y
-    w = int(ext.get("cx", str(100 * EMU_PER_PX))) if ext is not None else 100 * EMU_PER_PX
-    h = int(ext.get("cy", str(40 * EMU_PER_PX))) if ext is not None else 40 * EMU_PER_PX
-    return float(x), float(y), float(max(w, 1)), float(max(h, 1))
+def is_filler(text):
+    # ハイフン（-／－）・アスタリスク（*／＊）ともに既存Excelの区切り表現として出力する
+    # 空白のみのセルだけをスキップ
+    return len(text.strip()) == 0
 
+def normalize_font_name(name):
+    if not name:
+        return None
+    return FONT_ALIASES.get(name, name)
+
+def apply_tint(hex6, tint):
+    """
+    DrawML の tint 属性（-1.0〜1.0）を近似適用する。
+    tint > 0: 白に近づける  /  tint < 0: 黒に近づける
+    """
+    try:
+        r = int(hex6[0:2], 16)
+        g = int(hex6[2:4], 16)
+        b = int(hex6[4:6], 16)
+        t = float(tint)
+        if t > 0:
+            r = int(r + (255 - r) * t)
+            g = int(g + (255 - g) * t)
+            b = int(b + (255 - b) * t)
+        else:
+            r = int(r * (1 + t))
+            g = int(g * (1 + t))
+            b = int(b * (1 + t))
+        r, g, b = max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b))
+        return f'{r:02X}{g:02X}{b:02X}'
+    except Exception:
+        return hex6
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  シートのグリッド（列幅・行高 → ピクセル座標）
+# ══════════════════════════════════════════════════════════════════════════════
+
+def build_grid(sh_root):
+    col_w = defaultdict(lambda: 8.0)
+    for col_el in sh_root.findall('.//x:col', {'x': SS}):
+        mn = int(col_el.attrib.get('min', 1))
+        mx = int(col_el.attrib.get('max', 1))
+        w  = float(col_el.attrib.get('width', 8))
+        for c in range(mn - 1, mx):
+            col_w[c] = w
+
+    row_h = defaultdict(lambda: 15.0)
+    for row_el in sh_root.findall('.//x:row', {'x': SS}):
+        r  = int(row_el.attrib.get('r', 1))
+        ht = row_el.attrib.get('ht')
+        if ht:
+            row_h[r - 1] = float(ht)
+
+    MAX = 300
+    col_x = [0] * (MAX + 1)
+    for i in range(MAX):
+        col_x[i + 1] = col_x[i] + chars_px(col_w[i])
+
+    row_y = [0] * (MAX + 1)
+    for i in range(MAX):
+        row_y[i + 1] = row_y[i] + pts_px(row_h[i])
+
+    return col_x, row_y, col_w, row_h
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  DrawIO XML ビルダー
+# ══════════════════════════════════════════════════════════════════════════════
+
+class DrawioBuilder:
+    def __init__(self):
+        self._cells   = []
+        self._next    = 2
+        self._seen    = set()
+        self._max_x   = 0
+        self._max_y   = 0
+
+    def add(self, text, x, y, w, h, style, force=False):
+        x, y = round(x), round(y)
+        w, h = round(max(w, 1)), round(max(h, 1))
+        key  = (x, y, w, h, style[:60])
+        if key in self._seen and not force:
+            return
+        self._seen.add(key)
+        self._max_x = max(self._max_x, x + w)
+        self._max_y = max(self._max_y, y + h)
+        cid = self._next
+        self._next += 1
+        esc = html.escape(str(text))
+        # ★ v6 重要修正: width / height（DrawIOで正しく描画される）
+        self._cells.append(
+            f'    <mxCell id="{cid}" value="{esc}" style="{style}" vertex="1" parent="1">'
+            f'<mxGeometry x="{x}" y="{y}" width="{w}" height="{h}" as="geometry"/>'
+            f'</mxCell>'
+        )
 
 def _legacy_parse_shape(sp_elem: ET.Element, anchor_x: float, anchor_y: float) -> Optional[_LegacyDrawioShape]:
     sp_pr = sp_elem.find(f"{{{XDR_NS}}}spPr")
@@ -177,6 +282,26 @@ def _legacy_parse_shape(sp_elem: ET.Element, anchor_x: float, anchor_y: float) -
         return None
     if not text and min(_to_px(w), _to_px(h)) < 2:
         return None
+    sf = el.find(f'{{{A}}}solidFill') or el
+    s  = sf.find(f'{{{A}}}srgbClr')
+    if s is not None:
+        return '#' + s.attrib.get('val', '000000').upper()
+    sc = sf.find(f'{{{A}}}schemeClr')
+    if sc is not None:
+        base = SCHEME_COLORS.get(sc.attrib.get('val', 'dk1'), '808080')
+        lum_mod = sc.find(f'{{{A}}}lumMod')
+        lum_off = sc.find(f'{{{A}}}lumOff')
+        if lum_mod is not None or lum_off is not None:
+            mod = int(lum_mod.attrib.get('val', '100000')) / 100000 if lum_mod is not None else 1.0
+            off = int(lum_off.attrib.get('val', '0'))     / 100000 if lum_off is not None else 0.0
+            base = apply_tint(base, (mod - 1 + off))
+        return '#' + base.upper()
+    sy = sf.find(f'{{{A}}}sysClr')
+    if sy is not None:
+        last = sy.attrib.get('lastClr')
+        if last:
+            return '#' + last.upper()
+    return None
 
     return _LegacyDrawioShape(x=x, y=y, width=w, height=h, text=text, style=style)
 
@@ -188,14 +313,67 @@ def _legacy_parse_connector(cxn_elem: ET.Element, anchor_x: float, anchor_y: flo
     p2 = (x + w, y + h)
     style = _legacy_extract_sp_style(sp_pr)
 
-    dx = abs(_to_px(p2[0] - p1[0]))
-    dy = abs(_to_px(p2[1] - p1[1]))
-    length = (dx**2 + dy**2) ** 0.5
-    if length < 8 and style.get("endArrow", "").lower() in ("", "none"):
-        return None
+    w = raw_w if raw_w >= 1 else 2
+    h = raw_h if raw_h >= 1 else 2
 
     return _LegacyDrawioConnector(points=[p1, p2], style=style)
 
+    if ln is not None:
+        sf    = ln.find(f'{{{A}}}solidFill')
+        color = parse_color(sf) if sf is not None else '#000000'
+        if color is None:
+            color = '#000000'
+    else:
+        color = '#000000'
+
+    lw_emu = int(ln.attrib.get('w', '12700')) if ln is not None else 12700
+    lw_px  = max(1, round(lw_emu / 12700))
+
+    if raw_w < 1 or raw_h < 1:
+        style = (f'whiteSpace=wrap;html=1;fillColor={color};'
+                 f'strokeColor={color};strokeWidth={lw_px};')
+    else:
+        style = (f'whiteSpace=wrap;html=1;fillColor=none;'
+                 f'strokeColor={color};strokeWidth={lw_px};')
+
+    bld.add('', ax, ay, w, h, style)
+
+
+def walk_group(grp, pax, pay, sx, sy, bld, depth=0):
+    if depth > 25:
+        return
+    grp_pr = grp.find(f'{{{XDR}}}grpSpPr')
+    if grp_pr is None:
+        return
+    xfrm = grp_pr.find(f'{{{A}}}xfrm')
+    if xfrm is None:
+        return
+
+    ox, oy, ecx, ecy, chox, choy, chcx, chcy = get_xfrm(xfrm)
+    gax, gay = pax + ox * sx, pay + oy * sy
+    gw, gh   = ecx * sx, ecy * sy
+
+    csx = (gw / chcx) if chcx else sx
+    csy = (gh / chcy) if chcy else sy
+    cox = gax - chox * csx
+    coy = gay - choy * csy
+
+    for child in grp:
+        ct = child.tag.split('}')[-1]
+        if   ct == 'sp':    emit_sp(child,    cox, coy, csx, csy, bld)
+        elif ct == 'cxnSp': emit_cxnsp(child, cox, coy, csx, csy, bld)
+        elif ct == 'grpSp': walk_group(child, cox, coy, csx, csy, bld, depth + 1)
+        # pic はスキップ
+
+
+def anchor_rect(anchor, col_x, row_y):
+    """
+    アンカーのセル参照からピクセル矩形 (x, y, w, h) を返す。
+    findtext() を使用して XML 要素の真偽値問題を回避する（v6方式）。
+    """
+    from_el = anchor.find(f'{{{XDR}}}from')
+    if from_el is None:
+        return None
 
 def _legacy_parse_drawing_xml(content: bytes) -> Tuple[List[_LegacyDrawioShape], List[_LegacyDrawioConnector]]:
     root = ET.fromstring(content)
@@ -227,9 +405,9 @@ def _legacy_resolve_xl_target(base_path: str, target: str) -> str:
     for p in joined.split("/"):
         if p in ("", "."):
             continue
-        if p == "..":
-            if parts:
-                parts.pop()
+        try:
+            c1, r1, c2, r2 = parse_range_ref(ref)
+        except Exception:
             continue
         parts.append(p)
     return "/".join(parts)
