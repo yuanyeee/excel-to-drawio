@@ -1005,6 +1005,10 @@ class ExcelReader:
                 if not has_fill and not has_border:
                     continue
 
+                # fromClaude v8相当: 値なし+塗りなしセルの罫線はノイズになりやすいため除外
+                if has_border and (not has_fill) and (not has_text):
+                    continue
+
                 if has_fill and (not has_border) and (not has_text):
                     fill_color = self._get_cell_fill_hex(cell)
                     if fill_color is not None:

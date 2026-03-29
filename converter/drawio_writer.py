@@ -5,8 +5,7 @@ custom geometry, deep group shapes, and off-page connectors
 
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
-from typing import Dict, List
-from datetime import datetime
+from typing import Dict, List, Tuple
 
 from .shape_mapper import ShapeMapper
 
@@ -22,39 +21,59 @@ class DrawioWriter:
 
     def write(self, output_path: str):
         """Write all sheets to a single draw.io file with multiple pages"""
-        # Create root mxfile
         mxfile = self._create_mxfile()
 
-        # Add each sheet as a direct child diagram (no wrapper)
-        for idx, (sheet_name, data) in enumerate(self.sheets_data.items()):
-            self._add_page(mxfile, sheet_name, data, idx + 1)
+        for idx, (sheet_name, data) in enumerate(self.sheets_data.items(), start=1):
+            self._add_page(mxfile, sheet_name, data, idx)
 
-        # Write to file
         xml_str = self._prettify(mxfile)
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(xml_str)
 
     def _create_mxfile(self) -> ET.Element:
-        """Create the mxfile root element"""
+        """Create the mxfile root element (Claude script compatible defaults)."""
         mxfile = ET.Element("mxfile")
-        mxfile.set("host", "excel-to-drawio")
-        mxfile.set("version", "24.0.0")
+        mxfile.set("host", "Claude")
+        mxfile.set("version", "24.7.5")
+        mxfile.set("type", "device")
         return mxfile
 
-    def _add_page(
-        self, parent: ET.Element, sheet_name: str, data: dict, page_idx: int
-    ):
+    def _calc_page_size(self, shapes: List, connectors: List) -> Tuple[int, int]:
+        max_x = 0.0
+        max_y = 0.0
+
+        for shape in shapes:
+            sx = shape.x / 914400 * 96
+            sy = shape.y / 914400 * 96
+            sw = shape.width / 914400 * 96
+            sh = shape.height / 914400 * 96
+            max_x = max(max_x, sx + sw)
+            max_y = max(max_y, sy + sh)
+
+        for conn in connectors:
+            for px, py in getattr(conn, "points", []) or []:
+                cx = px / 914400 * 96
+                cy = py / 914400 * 96
+                max_x = max(max_x, cx)
+                max_y = max(max_y, cy)
+
+        # fromClaude script behavior: at least 2000 with a 10% margin
+        page_w = max(2000, int(max_x * 1.10))
+        page_h = max(2000, int(max_y * 1.10))
+        return page_w, page_h
+
+    def _add_page(self, parent: ET.Element, sheet_name: str, data: dict, page_idx: int):
         """Add a page (sheet) to the diagram"""
         page = ET.SubElement(parent, "diagram")
-        page.set("id", str(page_idx + 1))
+        page.set("id", f"d{page_idx}")
         page.set("name", sheet_name)
 
-        # Create mxGraphModel
+        shapes = data.get("shapes", [])
+        connectors = data.get("connectors", [])
+        page_w, page_h = self._calc_page_size(shapes, connectors)
+
         model = ET.SubElement(page, "mxGraphModel")
-        model.set("dx", "1200")
-        model.set("dy", "800")
-        model.set("grid", "1")
-        model.set("gridSize", "10")
+        model.set("grid", "0")
         model.set("guides", "1")
         model.set("tooltips", "1")
         model.set("connect", "1")
@@ -62,17 +81,14 @@ class DrawioWriter:
         model.set("fold", "1")
         model.set("page", "1")
         model.set("pageScale", "1")
+        model.set("pageWidth", str(page_w))
+        model.set("pageHeight", str(page_h))
         model.set("math", "0")
         model.set("shadow", "0")
 
-        # Root and parent cells
         root = ET.SubElement(model, "root")
         ET.SubElement(root, "mxCell", id="0")
         ET.SubElement(root, "mxCell", id="1", parent="0")
-
-        # Add shapes
-        shapes = data.get("shapes", [])
-        connectors = data.get("connectors", [])
 
         self._write_shapes(root, shapes)
         self._write_connectors(root, connectors)
@@ -85,53 +101,41 @@ class DrawioWriter:
             self.shape_counter += 1
             cell = ET.SubElement(parent, "mxCell")
             cell.set("id", str(cell_id))
-            cell.set("parent", "0")
+            cell.set("parent", "1")
             cell.set("vertex", "1")
 
-            # Geometry
             geo = ET.SubElement(cell, "mxGeometry")
-            geo.set("x", str(shape.x / 914400 * 96))  # EMU to pixels
+            geo.set("x", str(shape.x / 914400 * 96))
             geo.set("y", str(shape.y / 914400 * 96))
             geo.set("width", str(shape.width / 914400 * 96))
             geo.set("height", str(shape.height / 914400 * 96))
             geo.set("as", "geometry")
 
-            # Shape type
             shape_type = self.mapper.map_type(shape.type)
 
-            # Style
             style_dict = self.mapper.map_style(shape.style)
             style_dict["shape"] = shape_type
 
-            # Add rounded corners for cell-based shapes
             if shape.source == "cell":
                 style_dict["rounded"] = "0"
 
-            if not shape.text:
-                if "fontSize" not in style_dict:
-                    style_dict["fontSize"] = "12"
+            if not shape.text and "fontSize" not in style_dict:
+                style_dict["fontSize"] = "12"
 
-            # Handle off-page connectors specially
-            if shape.type == "offpageConnector" or shape.type == "offPageConnector":
+            if shape.type in ("offpageConnector", "offPageConnector"):
                 style_dict["shape"] = "offPageConnector"
                 style_dict["verticalLabelPosition"] = "bottom"
                 if shape.text:
                     style_dict["labelBackgroundColor"] = "#FFFFFF"
 
-            # Handle custom geometry
             if shape.type == "custom" and shape.geometry == "path" and shape.path_data:
-                # Use a rectangle as base and specify as custom
                 style_dict["shape"] = "custom"
-                # Store the path in UserObject for draw.io to pick up
-                # draw.io interprets custom shapes via the style
 
             style_str = self.mapper.build_style_string(style_dict)
             cell.set("style", style_str)
 
-            # Value (text content)
             if shape.text:
-                escaped_text = self._escape_xml(shape.text)
-                cell.set("value", escaped_text)
+                cell.set("value", shape.text)
 
             cell_id += 1
 
@@ -143,27 +147,23 @@ class DrawioWriter:
             self.shape_counter += 1
             cell = ET.SubElement(parent, "mxCell")
             cell.set("id", str(cell_id))
-            cell.set("parent", "0")
+            cell.set("parent", "1")
             cell.set("edge", "1")
 
-            if hasattr(conn, 'source_id') and conn.source_id:
+            if hasattr(conn, "source_id") and conn.source_id:
                 cell.set("source", str(conn.source_id))
-            if hasattr(conn, 'target_id') and conn.target_id:
+            if hasattr(conn, "target_id") and conn.target_id:
                 cell.set("target", str(conn.target_id))
 
-            # Style
             style_dict = self.mapper.map_style(conn.style)
             style_str = self.mapper.build_style_string(style_dict)
             cell.set("style", style_str)
 
-            # Geometry with points
             if conn.points and len(conn.points) >= 2:
                 geo = ET.SubElement(cell, "mxGeometry")
                 geo.set("as", "geometry")
                 geo.set("relative", "1")
 
-                # draw.io expects source/target points on connectors and
-                # optional waypoints under Array as="points".
                 source_point = ET.SubElement(geo, "mxPoint")
                 source_point.set("x", str(conn.points[0][0] / 914400 * 96))
                 source_point.set("y", str(conn.points[0][1] / 914400 * 96))
@@ -183,18 +183,6 @@ class DrawioWriter:
                         mx_point.set("y", str(point[1] / 914400 * 96))
 
             cell_id += 1
-
-    def _escape_xml(self, text: str) -> str:
-        """Escape XML special characters"""
-        if not text:
-            return ""
-        return (
-            text.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
-            .replace("'", "&apos;")
-        )
 
     def _prettify(self, elem: ET.Element) -> str:
         """Return a pretty-printed XML string"""
@@ -257,10 +245,6 @@ class SimpleDrawioWriter:
 
             cell_id += 1
 
-        # Write
-        xml_str = minidom.parseString(
-            ET.tostring(root, encoding="utf-8").decode("utf-8")
-        ).toprettyxml(indent="  ")
-
+        xml_str = minidom.parseString(ET.tostring(root, encoding="utf-8")).toprettyxml(indent="  ")
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(xml_str)
