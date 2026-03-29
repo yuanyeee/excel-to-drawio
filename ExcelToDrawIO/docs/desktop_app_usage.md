@@ -24,12 +24,6 @@
 python .\desktop_app.py
 ```
 
-フルパスで実行する場合:
-
-```powershell
-python "D:\Work\ClaudeWork\ExcelToDrawIO -2\desktop_app.py"
-```
-
 ## 使い方
 
 1. `Browse...` を押して、変換したい Excel ファイルを選択します。
@@ -74,8 +68,3 @@ python "D:\Work\ClaudeWork\ExcelToDrawIO -2\desktop_app.py"
 
 画面下のログ欄とポップアップメッセージを確認してください。
 
-## 関連ファイル
-
-- アプリ本体: [desktop_app.py](/D:/Work/ClaudeWork/ExcelToDrawIO%20-2/desktop_app.py)
-- 変換エンジン: [excel_to_drawio.py](/D:/Work/ClaudeWork/ExcelToDrawIO%20-2/excel_to_drawio.py)
-- 実装計画: [2026-03-29-excel-drawio-desktop.md](/D:/Work/ClaudeWork/ExcelToDrawIO%20-2/docs/superpowers/plans/2026-03-29-excel-drawio-desktop.md)
