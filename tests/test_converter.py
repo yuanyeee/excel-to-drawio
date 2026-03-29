@@ -426,6 +426,19 @@ class TestExcelReader:
         module_path = Path(__file__).resolve().parents[1] / "converter" / "excel_to_drawio.py"
         py_compile.compile(str(module_path), doraise=True)
 
+    def test_excel_to_drawio_has_no_fullwidth_parentheses(self):
+        module_path = Path(__file__).resolve().parents[1] / "converter" / "excel_to_drawio.py"
+        content = module_path.read_text(encoding="utf-8")
+        assert "（" not in content
+        assert "）" not in content
+
+    def test_excel_to_drawio_has_no_orphan_args_block_after_legacy_local(self):
+        module_path = Path(__file__).resolve().parents[1] / "converter" / "excel_to_drawio.py"
+        lines = module_path.read_text(encoding="utf-8").splitlines()
+        head = "\n".join(lines[:140])
+        assert "def _legacy_local" in head
+        assert "\n    Args:\n" not in head
+
     def test_gui_import_path_compiles_with_converter(self):
         # Regression guard: catches syntax/indent issues that break
         # `python gui_tkinter.py` at import time.
