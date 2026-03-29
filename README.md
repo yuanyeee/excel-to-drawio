@@ -1,98 +1,108 @@
 # Excel to draw.io Converter
 
-Excelの図形、フロー Chart、ER図をdraw.io形式に変換するデスクトップアプリケーションです。
+Excel（`.xlsx` / `.xlsm`）の内容を draw.io（`.drawio`）へ変換するツールです。  
+GUI（デスクトップ）とCLIの両方に対応しています。
 
-## 特徴
+## 主な仕様（最新）
 
-- **シンプルな操作**: ファイルを選んで、シートを選択して、変換ボタン押すだけ
-- **Windows標準UI使用**: tkinterで構築、indowsのファイルダイアログをそのまま使用
-- **サイズ調整可能**: ウィンドウのサイズを自由に変更可能
-- **スクロール対応**: 多数シートがあってもスクロールして選択可能
-- **形状変換**: 矩形、楕円、菱形、矢印、コネクター 등을 支持
-- **セル図形対応**: 結合セルや枠線で描いた図形も変換可能
-- **スタイル保存**: 塗りつぶし色、線色、テキスト样式를 保存
+- 変換エンジンは **legacy優先**（既定）
+- legacyで図形が取得できず**空出力になる場合は自動でpipelineへフォールバック**
+- 複数シートを1つの `.drawio` に複数ページとして出力
+- `--include-cells` 有効時はセル由来図形（塗り/枠線/結合セル）を出力
+- ノイズ低減のため「罫線のみ・塗りなし・値なし」セルは除外
 
-## 対応ファイル形式
-
-| 形式 | 説明 | 対応 |
-|------|------|------|
-| .xlsx | Excel 2007以降 | ✅ |
-| .xls | Excel 97-2003 | ✅ |
-| .xlsm | Excel マクロ付き | ✅ |
+---
 
 ## インストール
 
-```powershell
-cd excel-to-drawio
+```bash
 pip install -r requirements.txt
 ```
 
+---
+
 ## 使い方
 
-### デスクトップGUI（推奨）
+### 1) GUI（推奨）
 
-```powershell
+```bash
 python gui_tkinter.py
 ```
 
-画面が起動したら：
+または
 
-1. **「Browse Excel File」**をクリックしてExcelファイルを選択
-2. **変換したいシートにチェックを入れる**
-3. **「Convert to draw.io」**ボタンをクリック
-4. **保存ファイル名（.drawio）と保存先を指定して完了**
+```bash
+python desktop_app.py
+```
 
-### コマンドライン
+手順:
+1. Excelファイルを選択
+2. 変換対象シートを選択
+3. `Convert to draw.io` 実行
+4. 保存先を指定
 
-```powershell
-python main.py 入力ファイル.xlsx --sheets "シート1" "シート2"
+> 現在のGUIにエンジン選択UIはありません（内部で legacy優先 + 必要時pipelineフォールバック）。
+
+### 2) CLI
+
+```bash
+python main.py input.xlsx -o output.drawio --sheets "Sheet1" "Sheet2" --include-cells
 ```
 
 オプション:
-- `--sheets`: 変換するシート名を指定（省略すると全シート）
-- `-o 出力ファイル`: 出力先を指定
-- `--include-cells`: セル由来図形を含める（大量オブジェクトになる場合あり）
+- `-o, --output`: 出力 `.drawio` パス
+- `-s, --sheets`: 変換するシート名（複数指定可）
+- `--include-cells`: セル由来図形も含める
+- `-v, --verbose`: 詳細ログ
 
-例：
-```powershell
-python main.py diagram.xlsx --sheets "Sheet1" "Sheet2" -o output.drawio
+---
+
+## Python API
+
+```python
+from converter.excel_to_drawio import convert_excel_to_drawio
+
+result = convert_excel_to_drawio(
+    input_path="input.xlsx",
+    output_path="output.drawio",
+    sheet_names=["Sheet1"],
+    include_cells=True,
+    engine="legacy",   # "legacy" or "pipeline"
+)
 ```
+
+`engine` を指定しない場合は `legacy` が使われ、空結果時に `pipeline` へ自動フォールバックします。
+
+---
 
 ## プロジェクト構成
 
-```
+```text
 excel-to-drawio/
-├── gui_tkinter.py      # デスクトップGUIアプリ
-├── main.py             # コマンドライン版
-├── converter/          # 変換エンジン
-│   ├── __init__.py
-│   ├── excel_reader.py     # Excel読み込み
-│   ├── shape_mapper.py     # shapeタイプ変換
-│   ├── drawio_writer.py    # draw.io XML出力
-│   └── cell_border.py     # セル枠線処理
-├── tests/              # テスト
-├── requirements.txt    # 依存ライブラリ
-├── README.md
-└── SPEC.md           # 仕様書
+├── desktop_app.py
+├── gui_tkinter.py
+├── main.py
+├── converter/
+│   ├── excel_to_drawio.py
+│   ├── excel_reader.py
+│   ├── drawio_writer.py
+│   ├── shape_mapper.py
+│   └── cell_border.py
+├── tests/
+└── requirements.txt
 ```
 
-## 動作環境
-
-- Python 3.8+
-- Windows / Mac / Linux
-- tkinter（Python標準ライブラリ）
+---
 
 ## トラブルシューティング
 
-### Q: tkinterのエラーが出る
-A: Pythonが正しくインストールされているか確認してください。公式サイトからPython 3.8以降をインストールしてください。
+- `python -m py_compile converter/excel_to_drawio.py` が失敗する場合  
+  → ファイルが壊れている可能性があります。最新ブランチから `converter/excel_to_drawio.py` を取り直してください。
+- GUIが起動しない場合  
+  → `python -m py_compile gui_tkinter.py` で構文エラーを確認してください。
 
-### Q: Excelファイルが開けない
-A: ファイルが別のプログラムで開かれていないか確認してください。閉じてから再度試してください。
-
-### Q: 変換结果がdraw.ioで開けない
-A: draw.io官方网站から最新版をダウンロードしてください。
+---
 
 ## ライセンス
 
-MIT License
+MIT
