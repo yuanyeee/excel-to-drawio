@@ -487,7 +487,7 @@ def parse_cell_text_styles(z):
         if 0 <= fid < len(fonts):
             f = fonts[fid]
             if f.get('fontFamily'):
-                style['fontFamily'] = f['fontFamily']
+                style['fontFamily'] = str(f['fontFamily']).replace('"', '');
             if f.get('fontSize'):
                 style['fontSize'] = f['fontSize']
             if f.get('fontColor') and f['fontColor'] != '#000000':
