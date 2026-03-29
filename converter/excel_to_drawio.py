@@ -72,7 +72,7 @@ class _LegacyDrawioConnector:
 
 def _legacy_local(tag: str) -> str:
     return tag.split("}")[-1] if "}" in tag else tag
-
+    """
     Args:
         input_path: Path to source Excel file.
         output_path: Path to output .drawio file.
@@ -81,7 +81,7 @@ def _legacy_local(tag: str) -> str:
 
     Returns:
         ConversionResult with selected sheet names and extracted data.
-    
+    """
 
     input_file = Path(input_path)
     output_file = Path(output_path)
