@@ -67,9 +67,9 @@ from pathlib import Path
 # ══════════════════════════════════════════════════════════════════════════════
 #  設定ブロック（ここを変更して調整）
 # ══════════════════════════════════════════════════════════════════════════════
-TARGET_SHEET = 'ＮＥＴフロー(夜)_20250508'
-INPUT_FILE   = 'ネットワークフロー図（H6）.xlsm'
-OUTPUT_FILE  = 'NET_Flow_Night_20250508.drawio'
+TARGET_SHEET = None   # CLI / GUI から指定（省略時は全シート変換）
+INPUT_FILE   = None   # CLI / GUI から指定（必須）
+OUTPUT_FILE  = None   # CLI / GUI から指定（省略時は自動生成）
 
 SCALE             = 1.0   # 全体スケール（1.0 = 実寸）
 CHAR_WIDTH        = 7     # 1文字あたりのピクセル幅（標準幅）
@@ -291,7 +291,7 @@ def build_grid(sh_root):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class DrawioBuilder:
-    def __init__(self, diagram_name=TARGET_SHEET):
+    def __init__(self, diagram_name='Sheet1'):
         self._cells   = []
         self._next    = 2
         self._seen    = set()
@@ -1540,14 +1540,36 @@ def _load_shared_strings(z):
 #  メインコンバーター
 # ══════════════════════════════════════════════════════════════════════════════
 
-def convert(xlsm=INPUT_FILE, sheet=TARGET_SHEET, out=OUTPUT_FILE, log_func=None):
-    convert_sheets_to_file(xlsm, [sheet], out, log_func=log_func)
+def convert(xlsm, sheet=None, out=None, log_func=None):
+    """単一シートを変換する（後方互換用）。sheet=None の場合は全シート変換。"""
+    if out is None:
+        if sheet:
+            out = suggest_output_path(xlsm, sheet)
+        else:
+            out = suggest_multi_output_path(xlsm)
+    sheets = [sheet] if sheet else list_supported_sheets(xlsm)
+    convert_sheets_to_file(xlsm, sheets, out, log_func=log_func)
+
 
 if __name__ == '__main__':
     import argparse
-    parser = argparse.ArgumentParser(description='Excel XLSM → DrawIO XML converter v7')
-    parser.add_argument('--input',  default=INPUT_FILE,   help='Input XLSM file')
-    parser.add_argument('--sheet',  default=TARGET_SHEET, help='Target sheet name')
-    parser.add_argument('--output', default=OUTPUT_FILE,  help='Output DrawIO file')
+    parser = argparse.ArgumentParser(
+        description='Excel (.xlsx/.xlsm) → Draw.io (.drawio) 変換ツール',
+    )
+    parser.add_argument('input', help='入力 Excel ファイル (.xlsx / .xlsm)')
+    parser.add_argument('-o', '--output', default=None,
+                        help='出力ファイルパス (省略時は入力ファイル名.drawio)')
+    parser.add_argument('-s', '--sheets', nargs='+', default=None,
+                        help='変換するシート名 (省略時は全シート)')
+    parser.add_argument('-l', '--list', action='store_true', dest='list_sheets',
+                        help='シート一覧を表示して終了')
     args = parser.parse_args()
-    convert(xlsm=args.input, sheet=args.sheet, out=args.output)
+
+    if args.list_sheets:
+        for name in list_supported_sheets(args.input):
+            print(name)
+        sys.exit(0)
+
+    sheets = args.sheets or list_supported_sheets(args.input)
+    output = args.output or suggest_multi_output_path(args.input)
+    convert_sheets_to_file(args.input, sheets, output)
