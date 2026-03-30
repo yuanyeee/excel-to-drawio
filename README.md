@@ -1,6 +1,7 @@
 # Excel to Draw.io Converter
 
-Excel ファイル(.xlsx / .xlsm)のシート内容を Draw.io (.drawio) 形式に変換するデスクトップアプリケーションです。
+Excel ファイル(.xlsx / .xlsm)のシート内容を Draw.io (.drawio) 形式に変換するツールです。
+デスクトップ GUI とコマンドライン (CLI) の両方で利用できます。
 
 ## 特徴
 
@@ -45,12 +46,37 @@ python desktop_app.py
 
 詳細な操作説明は [ExcelToDrawIO/docs/desktop_app_usage.md](ExcelToDrawIO/docs/desktop_app_usage.md) を参照してください。
 
+### コマンドライン (CLI)
+
+`ExcelToDrawIO/` フォルダ内で以下を実行します。
+
+```bash
+# 全シートを変換（出力ファイル名は自動生成）
+python excel_to_drawio.py input.xlsx
+
+# 出力ファイルを指定
+python excel_to_drawio.py input.xlsx -o output.drawio
+
+# 特定のシートのみ変換
+python excel_to_drawio.py input.xlsx -s "Sheet1" "Sheet2"
+
+# シート一覧を表示
+python excel_to_drawio.py input.xlsx -l
+```
+
+| オプション | 説明 |
+|---|---|
+| `input` (必須) | 入力 Excel ファイル (.xlsx / .xlsm) |
+| `-o`, `--output` | 出力ファイルパス (省略時は `入力ファイル名.drawio`) |
+| `-s`, `--sheets` | 変換するシート名を指定 (省略時は全シート) |
+| `-l`, `--list` | シート一覧を表示して終了 |
+
 ## プロジェクト構成
 
 ```
 excel-to-drawio/
 ├── ExcelToDrawIO/
-│   ├── excel_to_drawio.py   # 変換エンジン本体
+│   ├── excel_to_drawio.py   # 変換エンジン本体 (CLI としても実行可能)
 │   ├── desktop_app.py       # デスクトップ GUI アプリ (tkinter)
 │   └── docs/
 │       └── desktop_app_usage.md  # GUI 操作マニュアル
