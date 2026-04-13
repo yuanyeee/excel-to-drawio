@@ -32,6 +32,10 @@ XDR = 'http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing'
 A = 'http://schemas.openxmlformats.org/drawingml/2006/main'
 R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 SS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
+ASVG = 'http://schemas.microsoft.com/office/drawing/2016/SVG/main'
+
+# Image formats that browsers (and therefore drawio) can render as a data URI.
+RENDERABLE_IMG_EXTS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'svg', 'webp'}
 REL = 'http://schemas.openxmlformats.org/package/2006/relationships'
 
 # ======================================================================
@@ -189,7 +193,17 @@ def _emu_px(emu, cfg):
     return emu / cfg.emu_per_px / cfg.scale
 
 def _chars_px(c, cfg):
-    return max(1, int(c * cfg.char_width + 0.5))
+    """Convert Excel column width (characters) to pixels.
+
+    Uses the OOXML spec formula:
+        pixels = Truncate(((256 * width + Truncate(128 / MDW)) / 256) * MDW)
+    where MDW is the maximum-digit-width of the workbook's default font in
+    pixels (cfg.char_width, defaults to 7 for Calibri 11).
+    """
+    if c <= 0:
+        return 0
+    mdw = max(1, cfg.char_width)
+    return max(1, int((256 * c + int(128 / mdw)) / 256 * mdw))
 
 def _pts_px(pts, cfg):
     return round(pts * cfg.point_to_px)
@@ -283,7 +297,19 @@ def _build_grid(sh_root, cfg):
     into the last slot of a fixed-size array.
     """
     ns = {'x': SS}
-    col_w = defaultdict(lambda: 8.0)
+    # Resolve default column width. Excel stores it on sheetFormatPr; when
+    # absent, default to ~9.14 which evaluates to 64 pixels via the OOXML
+    # formula at MDW=7 — matching Excel's Calibri 11 default column width.
+    default_col_w = 9.14
+    fmt_pr = sh_root.find(f'{{{SS}}}sheetFormatPr')
+    if fmt_pr is not None:
+        dcw = fmt_pr.attrib.get('defaultColWidth')
+        if dcw:
+            try:
+                default_col_w = float(dcw)
+            except ValueError:
+                pass
+    col_w = defaultdict(lambda: default_col_w)
     max_col_seen = 0
     for col_el in sh_root.findall('.//x:col', ns):
         mn = int(col_el.attrib.get('min', 1))
@@ -1175,7 +1201,17 @@ def _get_xfrm(xfrm):
 #  Image Extraction
 # ======================================================================
 def _extract_images(z, drawing_path):
-    """Extract images referenced by drawing XML. Returns {rId: data_uri}."""
+    """Extract images referenced by drawing XML.
+
+    Returns {rId: data_uri_or_None}. ``None`` marks a relationship that exists
+    but points at an image format the browser (and drawio) cannot render
+    directly. Callers should draw a placeholder rectangle for those instead of
+    emitting a broken <img>.
+
+    For EMF/WMF/TIFF entries, if a same-stem PNG/JPG/SVG sibling exists in
+    ``xl/media/`` (Office frequently ships both the vector and a raster
+    fallback), the fallback is used instead so the icon still shows up.
+    """
     images = {}
     num = drawing_path.rsplit('/', 1)[-1].replace('drawing', '').replace('.xml', '')
     rels_path = f'xl/drawings/_rels/drawing{num}.xml.rels'
@@ -1185,6 +1221,13 @@ def _extract_images(z, drawing_path):
         rels_root = ET.fromstring(z.read(rels_path).decode('utf-8'))
     except Exception:
         return images
+
+    mime_map = {'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+                'gif': 'image/gif', 'bmp': 'image/bmp', 'svg': 'image/svg+xml',
+                'webp': 'image/webp'}
+
+    zip_names = set(z.namelist())
+
     for rel in rels_root:
         rtype = rel.attrib.get('Type', '')
         if 'image' not in rtype.lower():
@@ -1198,19 +1241,41 @@ def _extract_images(z, drawing_path):
         # Normalize: ../media/image1.png -> xl/media/image1.png
         if '../media/' in target:
             img_path = 'xl/media/' + target.split('../media/')[-1]
-        if img_path not in z.namelist():
+
+        if img_path not in zip_names:
+            images[rid] = None
+            continue
+
+        ext = img_path.rsplit('.', 1)[-1].lower()
+
+        # Non-renderable (EMF/WMF/TIFF/…): try to find a same-stem raster/SVG
+        # fallback that Office may have saved alongside the original.
+        if ext not in RENDERABLE_IMG_EXTS:
+            stem_dir = img_path.rsplit('/', 1)[0]
+            stem_name = img_path.rsplit('/', 1)[-1].rsplit('.', 1)[0]
+            fallback = None
+            for cand_ext in ('png', 'jpg', 'jpeg', 'svg', 'gif'):
+                cand = f'{stem_dir}/{stem_name}.{cand_ext}'
+                if cand in zip_names:
+                    fallback = cand
+                    break
+            if fallback is None:
+                images[rid] = None
+                continue
+            img_path = fallback
+            ext = cand_ext
+
+        mime = mime_map.get(ext)
+        if not mime:
+            images[rid] = None
             continue
         try:
             img_data = z.read(img_path)
-            ext = img_path.rsplit('.', 1)[-1].lower()
-            mime_map = {'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
-                        'gif': 'image/gif', 'bmp': 'image/bmp', 'svg': 'image/svg+xml',
-                        'emf': 'image/x-emf', 'wmf': 'image/x-wmf', 'tiff': 'image/tiff'}
-            mime = mime_map.get(ext, 'image/png')
-            b64 = base64.b64encode(img_data).decode('ascii')
-            images[rid] = f'data:{mime};base64,{b64}'
         except Exception:
+            images[rid] = None
             continue
+        b64 = base64.b64encode(img_data).decode('ascii')
+        images[rid] = f'data:{mime};base64,{b64}'
     return images
 
 
@@ -1284,16 +1349,36 @@ def _emit_cxnsp(cxn, pax, pay, sx, sy, bld):
 
 
 def _emit_pic(pic, images, pax, pay, sx, sy, bld):
-    """Emit a picture element as an embedded image in DrawIO."""
+    """Emit a picture element as an embedded image in DrawIO.
+
+    Prefers the SVG alternate (``a14:svgBlip``) when Office shipped one next
+    to a raster primary (the modern "Insert > Icons" path). If the resolved
+    image format is not renderable by the browser, falls back to a dashed
+    placeholder rectangle so the layout stays intact.
+    """
     blip_fill = pic.find(f'{{{XDR}}}blipFill')
     if blip_fill is None:
         return
     blip = blip_fill.find(f'{{{A}}}blip')
     if blip is None:
         return
-    rid = blip.attrib.get(f'{{{R}}}embed', '')
-    if not rid or rid not in images:
-        return
+    primary_rid = blip.attrib.get(f'{{{R}}}embed', '')
+
+    # Prefer svgBlip extension when available and resolvable.
+    chosen_rid = primary_rid
+    ext_lst = blip.find(f'{{{A}}}extLst')
+    if ext_lst is not None:
+        svg_blip = ext_lst.find(f'.//{{{ASVG}}}svgBlip')
+        if svg_blip is not None:
+            svg_rid = svg_blip.attrib.get(f'{{{R}}}embed', '')
+            if svg_rid and images.get(svg_rid):
+                chosen_rid = svg_rid
+
+    data_uri = images.get(chosen_rid)
+    # If the SVG extension didn't help but primary is renderable, use primary.
+    if not data_uri and primary_rid and images.get(primary_rid):
+        data_uri = images[primary_rid]
+
     spr = pic.find(f'{{{XDR}}}spPr')
     if spr is None:
         return
@@ -1310,7 +1395,17 @@ def _emit_pic(pic, images, pax, pay, sx, sy, bld):
     h = int(ext.attrib.get('cy', 0)) * sy
     if w < 1 or h < 1:
         return
-    bld.add_image(ax, ay, w, h, images[rid])
+
+    if data_uri:
+        bld.add_image(ax, ay, w, h, data_uri)
+        return
+    # Unsupported format (EMF/WMF/TIFF without fallback, OLE, …): draw a
+    # dashed placeholder so the user can see where the image belongs.
+    if primary_rid or chosen_rid:
+        placeholder = ('whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#BDBDBD;'
+                       'dashed=1;align=center;verticalAlign=middle;fontSize=8;'
+                       'fontColor=#757575;')
+        bld.add('[image]', ax, ay, w, h, placeholder)
 
 
 def _walk_group(grp, pax, pay, sx, sy, bld, images, depth=0):
