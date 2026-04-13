@@ -754,10 +754,35 @@ def _add_cell_fills(sh_root, col_x, row_y, col_w, row_h, xf_fills, bld, cfg, bou
 # ======================================================================
 #  Cell Border Rendering
 # ======================================================================
-def _add_cell_borders(sh_root, col_x, row_y, col_w, row_h, xf_borders, bld, cfg, bounds):
-    """Render cell borders with full dash pattern support."""
+def _add_cell_borders(sh_root, col_x, row_y, col_w, row_h, xf_borders, xf_fills, bld, cfg, bounds):
+    """Render cell borders with full dash pattern support.
+
+    Skips internal left/right borders between two adjacent same-fill cells so
+    that a horizontal run of filled cells (e.g. a wide yellow label row) does
+    not show phantom vertical dividers that Excel itself does not render.
+    The outer left/right borders of the filled region (where the neighbor is
+    unfilled or a different color) are preserved.
+    """
     ns = {'x': SS}
     min_r, max_r, min_c, max_c = bounds
+
+    # Pre-scan: record fill color per (r, c) to drive internal-border suppression.
+    fill_positions = {}
+    for row_el in sh_root.findall('.//x:row', ns):
+        r = int(row_el.attrib.get('r', 1)) - 1
+        for cell in row_el.findall('x:c', ns):
+            ref = cell.attrib.get('r', '')
+            if not ref:
+                continue
+            try:
+                c, _ = _cell_ref(ref)
+            except Exception:
+                continue
+            s_attr = int(cell.attrib.get('s', 0))
+            fc = xf_fills.get(s_attr)
+            if fc:
+                fill_positions[(r, c)] = fc
+
     count = 0
     for row_el in sh_root.findall('.//x:row', ns):
         r = int(row_el.attrib.get('r', 1)) - 1
@@ -781,7 +806,18 @@ def _add_cell_borders(sh_root, col_x, row_y, col_w, row_h, xf_borders, bld, cfg,
                 continue
             cx = col_x[min(c, 499)] / cfg.scale
             cw = max(1.0, _chars_px(col_w[c], cfg) / cfg.scale)
+            own_fill = fill_positions.get((r, c))
             for side, (color, width_px, dash, _sname) in border_info.items():
+                # Suppress internal vertical/horizontal dividers between same-fill cells.
+                if own_fill:
+                    if side == 'left' and fill_positions.get((r, c - 1)) == own_fill:
+                        continue
+                    if side == 'right' and fill_positions.get((r, c + 1)) == own_fill:
+                        continue
+                    if side == 'top' and fill_positions.get((r - 1, c)) == own_fill:
+                        continue
+                    if side == 'bottom' and fill_positions.get((r + 1, c)) == own_fill:
+                        continue
                 dash_style = f'dashPattern={dash};' if dash else ''
                 style = (f'whiteSpace=wrap;html=1;fillColor={color};strokeColor={color};'
                          f'strokeWidth={width_px};{dash_style}')
@@ -1469,7 +1505,8 @@ def _build_sheet_xml(z, sheet_name, diagram_id, resources, cfg, log):
     if cfg.render_borders:
         log("Processing borders...")
         bc = _add_cell_borders(sh_root, col_x, row_y, col_w, row_h,
-                               resources['xf_borders'], bld, cfg, bounds)
+                               resources['xf_borders'], resources['xf_fills'],
+                               bld, cfg, bounds)
         log(f"  Border segments: {bc}")
     if drw_path and cfg.render_shapes:
         before = bld._next
