@@ -276,9 +276,15 @@ def _log(msg):
 #  Grid Builder
 # ======================================================================
 def _build_grid(sh_root, cfg):
-    """Build pixel coordinate arrays from column widths and row heights."""
+    """Build pixel coordinate arrays from column widths and row heights.
+
+    The grid is sized dynamically from the workbook's actual extent so that
+    sheets with more than 500 rows (or columns) are not silently collapsed
+    into the last slot of a fixed-size array.
+    """
     ns = {'x': SS}
     col_w = defaultdict(lambda: 8.0)
+    max_col_seen = 0
     for col_el in sh_root.findall('.//x:col', ns):
         mn = int(col_el.attrib.get('min', 1))
         mx = int(col_el.attrib.get('max', 1))
@@ -286,18 +292,33 @@ def _build_grid(sh_root, cfg):
         hidden = col_el.attrib.get('hidden') == '1'
         for c in range(mn - 1, mx):
             col_w[c] = 0.0 if (hidden and cfg.skip_hidden) else w
+        if mx > max_col_seen:
+            max_col_seen = mx
 
     row_h = defaultdict(lambda: 15.0)
+    max_row_seen = 0
     for row_el in sh_root.findall('.//x:row', ns):
         r = int(row_el.attrib.get('r', 1))
+        if r > max_row_seen:
+            max_row_seen = r
         ht = row_el.attrib.get('ht')
         hidden = row_el.attrib.get('hidden') == '1'
         if hidden and cfg.skip_hidden:
             row_h[r - 1] = 0.0
         elif ht:
             row_h[r - 1] = float(ht)
+        for cell in row_el.findall('x:c', ns):
+            ref = cell.attrib.get('r', '')
+            if not ref:
+                continue
+            try:
+                c, _ = _cell_ref(ref)
+            except Exception:
+                continue
+            if c + 1 > max_col_seen:
+                max_col_seen = c + 1
 
-    MAX = 500
+    MAX = max(500, max_row_seen + 50, max_col_seen + 50)
     col_x = [0] * (MAX + 1)
     for i in range(MAX):
         col_x[i + 1] = col_x[i] + _chars_px(col_w[i], cfg)
@@ -707,13 +728,15 @@ def _add_cell_fills(sh_root, col_x, row_y, col_w, row_h, xf_fills, bld, cfg, bou
     log(f"  Color grid cells: {len(color_grid)}")
     if not color_grid:
         return 0
+    CX_LAST = len(col_x) - 1
+    RY_LAST = len(row_y) - 1
     if not cfg.merge_fills:
         count = 0
         for (r, c), color in sorted(color_grid.items()):
-            px = col_x[min(c, 499)] / cfg.scale
-            py = row_y[min(r, 499)] / cfg.scale
-            pw = max(2.0, col_x[min(c + 1, 500)] / cfg.scale - px)
-            ph = max(2.0, row_y[min(r + 1, 500)] / cfg.scale - py)
+            px = col_x[min(c, CX_LAST)] / cfg.scale
+            py = row_y[min(r, RY_LAST)] / cfg.scale
+            pw = max(2.0, col_x[min(c + 1, CX_LAST)] / cfg.scale - px)
+            ph = max(2.0, row_y[min(r + 1, RY_LAST)] / cfg.scale - py)
             style = f'whiteSpace=wrap;html=1;fillColor={color};strokeColor=none;'
             bld.add('', px, py, pw, ph, style)
             count += 1
@@ -739,10 +762,10 @@ def _add_cell_fills(sh_root, col_x, row_y, col_w, row_h, xf_fills, bld, cfg, bou
         for rr in range(r, r_end + 1):
             for cc in range(c, c_end + 1):
                 processed.add((rr, cc))
-        px = col_x[min(c, 499)] / cfg.scale
-        py = row_y[min(r, 499)] / cfg.scale
-        px_end = col_x[min(c_end + 1, 500)] / cfg.scale
-        py_end = row_y[min(r_end + 1, 500)] / cfg.scale
+        px = col_x[min(c, CX_LAST)] / cfg.scale
+        py = row_y[min(r, RY_LAST)] / cfg.scale
+        px_end = col_x[min(c_end + 1, CX_LAST)] / cfg.scale
+        py_end = row_y[min(r_end + 1, RY_LAST)] / cfg.scale
         w = max(2.0, px_end - px)
         h = max(2.0, py_end - py)
         style = f'whiteSpace=wrap;html=1;fillColor={color};strokeColor=none;'
@@ -783,12 +806,14 @@ def _add_cell_borders(sh_root, col_x, row_y, col_w, row_h, xf_borders, xf_fills,
             if fc:
                 fill_positions[(r, c)] = fc
 
+    CX_LAST = len(col_x) - 1
+    RY_LAST = len(row_y) - 1
     count = 0
     for row_el in sh_root.findall('.//x:row', ns):
         r = int(row_el.attrib.get('r', 1)) - 1
         if r < min_r or r > max_r:
             continue
-        cy = row_y[min(r, 499)] / cfg.scale
+        cy = row_y[min(r, RY_LAST)] / cfg.scale
         ch = max(1.0, _pts_px(row_h[r], cfg) / cfg.scale)
         for cell in row_el.findall('x:c', ns):
             ref = cell.attrib.get('r', '')
@@ -804,7 +829,7 @@ def _add_cell_borders(sh_root, col_x, row_y, col_w, row_h, xf_borders, xf_fills,
             border_info = xf_borders.get(s_attr)
             if not border_info:
                 continue
-            cx = col_x[min(c, 499)] / cfg.scale
+            cx = col_x[min(c, CX_LAST)] / cfg.scale
             cw = max(1.0, _chars_px(col_w[c], cfg) / cfg.scale)
             own_fill = fill_positions.get((r, c))
             for side, (color, width_px, dash, _sname) in border_info.items():
@@ -909,6 +934,8 @@ def _add_cell_labels(sh_root, col_x, row_y, col_w, row_h, shared_strings,
     """Render cell text labels with hyperlink, rotation and text extension support."""
     ns = {'x': SS}
     min_r, max_r, min_c, max_c = bounds
+    CX_LAST = len(col_x) - 1
+    RY_LAST = len(row_y) - 1
     merged_topleft, merged_children = _build_merged_cell_maps(sh_root)
     value_map = _build_cell_value_map(sh_root, shared_strings)
     fill_grid = _build_fill_grid(sh_root, xf_fills)
@@ -917,7 +944,7 @@ def _add_cell_labels(sh_root, col_x, row_y, col_w, row_h, shared_strings,
         r = int(row_el.attrib.get('r', 1)) - 1
         if r < min_r or r > max_r:
             continue
-        ry = row_y[min(r, 499)] / cfg.scale
+        ry = row_y[min(r, RY_LAST)] / cfg.scale
         rh = max(1.0, _pts_px(row_h[r], cfg) / cfg.scale)
         for cell in row_el.findall('x:c', ns):
             ref = cell.attrib.get('r', '')
@@ -942,14 +969,14 @@ def _add_cell_labels(sh_root, col_x, row_y, col_w, row_h, shared_strings,
                 val = _format_numeric_value(raw_value, xf_numfmts.get(s_attr, (0, '')))
             if not val:
                 continue
-            cx = col_x[min(c, 499)] / cfg.scale
+            cx = col_x[min(c, CX_LAST)] / cfg.scale
             s_attr = int(cell.attrib.get('s', 0))
             style_info = xf_text_styles.get(s_attr, {})
             compact = _is_compact_label(val)
             if (r, c) in merged_topleft:
                 r_end, c_end = merged_topleft[(r, c)]
-                cw = max(1.0, (col_x[min(c_end + 1, 500)] - col_x[min(c, 500)]) / cfg.scale)
-                ch = max(1.0, (row_y[min(r_end + 1, 500)] - row_y[min(r, 500)]) / cfg.scale)
+                cw = max(1.0, (col_x[min(c_end + 1, CX_LAST)] - col_x[min(c, CX_LAST)]) / cfg.scale)
+                ch = max(1.0, (row_y[min(r_end + 1, RY_LAST)] - row_y[min(r, RY_LAST)]) / cfg.scale)
                 text_x, text_y, text_w, text_h = cx, ry, cw, ch
             else:
                 # Non-merged: try to extend text into adjacent empty cells on the right
@@ -962,7 +989,7 @@ def _add_cell_labels(sh_root, col_x, row_y, col_w, row_h, shared_strings,
                     own_fill = fill_grid.get((r, c))
                     acc_w = base_w
                     nc = c + 1
-                    while nc <= max_c and nc < 500:
+                    while nc <= max_c and nc < CX_LAST:
                         # Stop if next cell has any value
                         next_val = value_map.get((r, nc), '')
                         if next_val and next_val.strip():
@@ -984,7 +1011,7 @@ def _add_cell_labels(sh_root, col_x, row_y, col_w, row_h, shared_strings,
                         c_end = nc
                         nc += 1
                 if c_end > c:
-                    cw = max(1.0, (col_x[min(c_end + 1, 500)] - col_x[min(c, 500)]) / cfg.scale)
+                    cw = max(1.0, (col_x[min(c_end + 1, CX_LAST)] - col_x[min(c, CX_LAST)]) / cfg.scale)
                 else:
                     cw = base_w
                 text_x, text_y, text_w, text_h = cx, ry, cw, ch
@@ -1318,12 +1345,14 @@ def _anchor_rect(anchor, col_x, row_y, cfg):
     from_el = anchor.find(f'{{{XDR}}}from')
     if from_el is None:
         return None
+    cx_last = len(col_x) - 1
+    ry_last = len(row_y) - 1
     fc = int(from_el.findtext(f'{{{XDR}}}col', '0') or '0')
     fco = int(from_el.findtext(f'{{{XDR}}}colOff', '0') or '0')
     fr = int(from_el.findtext(f'{{{XDR}}}row', '0') or '0')
     fro = int(from_el.findtext(f'{{{XDR}}}rowOff', '0') or '0')
-    anc_x = col_x[min(fc, 499)] / cfg.scale + _emu_px(fco, cfg)
-    anc_y = row_y[min(fr, 499)] / cfg.scale + _emu_px(fro, cfg)
+    anc_x = col_x[min(fc, cx_last)] / cfg.scale + _emu_px(fco, cfg)
+    anc_y = row_y[min(fr, ry_last)] / cfg.scale + _emu_px(fro, cfg)
     to_el = anchor.find(f'{{{XDR}}}to')
     ext_el = anchor.find(f'{{{XDR}}}ext')
     if to_el is not None:
@@ -1331,8 +1360,8 @@ def _anchor_rect(anchor, col_x, row_y, cfg):
         tco = int(to_el.findtext(f'{{{XDR}}}colOff', '0') or '0')
         tr = int(to_el.findtext(f'{{{XDR}}}row', '0') or '0')
         tro = int(to_el.findtext(f'{{{XDR}}}rowOff', '0') or '0')
-        anc_w = max(2.0, col_x[min(tc, 499)] / cfg.scale + _emu_px(tco, cfg) - anc_x)
-        anc_h = max(2.0, row_y[min(tr, 499)] / cfg.scale + _emu_px(tro, cfg) - anc_y)
+        anc_w = max(2.0, col_x[min(tc, cx_last)] / cfg.scale + _emu_px(tco, cfg) - anc_x)
+        anc_h = max(2.0, row_y[min(tr, ry_last)] / cfg.scale + _emu_px(tro, cfg) - anc_y)
     elif ext_el is not None:
         anc_w = max(2.0, _emu_px(int(ext_el.attrib.get('cx', '9525')), cfg))
         anc_h = max(2.0, _emu_px(int(ext_el.attrib.get('cy', '9525')), cfg))
