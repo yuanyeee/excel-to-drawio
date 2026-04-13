@@ -800,14 +800,54 @@ def _add_cell_borders(sh_root, col_x, row_y, col_w, row_h, xf_borders, bld, cfg,
 # ======================================================================
 #  Cell Text Style & Label Rendering
 # ======================================================================
-def _make_cell_text_style(style_info, text, width, height):
-    """Build DrawIO style string for a cell text label."""
+def _estimate_text_units(text):
+    """Estimate text display width units (narrow=0.35, ASCII=0.6, CJK=1.0)."""
+    units = 0.0
+    for ch in text:
+        code = ord(ch)
+        if ch in 'ilI1.:;| ':
+            units += 0.35
+        elif code < 128:
+            units += 0.6
+        else:
+            units += 1.0
+    return max(units, 1.0)
+
+
+def _fit_font_size(text, width, height, base_font_size):
+    """Shrink font size until text fits in width x height."""
+    font_size = max(6, base_font_size)
+    while font_size > 6:
+        line_cap = max(1.0, (width - 2) / max(font_size * 0.95, 1))
+        req_lines = ceil(_estimate_text_units(text) / line_cap)
+        max_lines = max(1, int(height / max(font_size * 1.15, 1)))
+        if req_lines <= max_lines:
+            break
+        font_size -= 1
+    return font_size
+
+
+def _is_compact_label(text):
+    """Short labels like '12:34' or '42' get compact center alignment."""
+    s = str(text).strip()
+    if re.fullmatch(r'\d{1,2}[\uff1a:]\d{2}', s):
+        return True
+    if re.fullmatch(r'\d+', s) and len(s) <= 2:
+        return True
+    return False
+
+
+def _make_cell_text_style(style_info, text, width, height, compact=False):
+    """Build DrawIO style string for a cell text label with font auto-fit."""
     eff = dict(style_info)
-    fsz = eff.get('fontSize', 10)
+    if compact:
+        eff['align'] = 'center'
+        eff['verticalAlign'] = 'middle'
+    fsz = _fit_font_size(text, width, height, eff.get('fontSize', 10))
     parts = [
         'text', 'html=1', 'strokeColor=none', 'fillColor=none',
         'whiteSpace=wrap',
-        f'overflow=fill',
+        f'overflow={"hidden" if compact else "fill"}',
         f'align={eff.get("align", "left")}',
         f'verticalAlign={eff.get("verticalAlign", "middle")}',
         f'fontSize={fsz}',
@@ -822,18 +862,20 @@ def _make_cell_text_style(style_info, text, width, height):
         parts.append(f'textDecoration={eff["textDecoration"]}')
     if eff.get('rotation'):
         parts.append(f'rotation={-eff["rotation"]}')
-    parts.append('spacingTop=2')
-    if eff.get('align', 'left') == 'left':
-        parts.append('spacingLeft=4')
+    parts.append('spacingTop=1' if compact else 'spacingTop=3')
+    if not compact and eff.get('align', 'left') == 'left':
+        parts.append('spacingLeft=5')
     return ';'.join(parts) + ';'
 
 
 def _add_cell_labels(sh_root, col_x, row_y, col_w, row_h, shared_strings,
                      xf_text_styles, xf_numfmts, xf_fills, bld, cfg, bounds, hyperlinks):
-    """Render cell text labels with hyperlink, rotation support."""
+    """Render cell text labels with hyperlink, rotation and text extension support."""
     ns = {'x': SS}
     min_r, max_r, min_c, max_c = bounds
     merged_topleft, merged_children = _build_merged_cell_maps(sh_root)
+    value_map = _build_cell_value_map(sh_root, shared_strings)
+    fill_grid = _build_fill_grid(sh_root, xf_fills)
     count = 0
     for row_el in sh_root.findall('.//x:row', ns):
         r = int(row_el.attrib.get('r', 1)) - 1
@@ -867,20 +909,62 @@ def _add_cell_labels(sh_root, col_x, row_y, col_w, row_h, shared_strings,
             cx = col_x[min(c, 499)] / cfg.scale
             s_attr = int(cell.attrib.get('s', 0))
             style_info = xf_text_styles.get(s_attr, {})
+            compact = _is_compact_label(val)
             if (r, c) in merged_topleft:
                 r_end, c_end = merged_topleft[(r, c)]
                 cw = max(1.0, (col_x[min(c_end + 1, 500)] - col_x[min(c, 500)]) / cfg.scale)
                 ch = max(1.0, (row_y[min(r_end + 1, 500)] - row_y[min(r, 500)]) / cfg.scale)
+                text_x, text_y, text_w, text_h = cx, ry, cw, ch
             else:
-                cw = max(1.0, _chars_px(col_w[c], cfg) / cfg.scale)
+                # Non-merged: try to extend text into adjacent empty cells on the right
+                base_w = max(1.0, _chars_px(col_w[c], cfg) / cfg.scale)
                 ch = rh
+                c_end = c
+                if not compact:
+                    base_font = style_info.get('fontSize', 10)
+                    needed_px = _estimate_text_units(val) * base_font * 0.72 + 10
+                    own_fill = fill_grid.get((r, c))
+                    acc_w = base_w
+                    nc = c + 1
+                    while nc <= max_c and nc < 500:
+                        # Stop if next cell has any value
+                        next_val = value_map.get((r, nc), '')
+                        if next_val and next_val.strip():
+                            break
+                        next_fill = fill_grid.get((r, nc))
+                        if own_fill:
+                            # Extend only while adjacent cells share the same fill color
+                            if next_fill != own_fill:
+                                break
+                        else:
+                            # No fill: stop if adjacent cell has a fill
+                            if next_fill:
+                                break
+                            # Stop once accumulated width covers needed width
+                            if acc_w >= needed_px:
+                                break
+                        nc_w = max(1.0, _chars_px(col_w[nc], cfg) / cfg.scale)
+                        acc_w += nc_w
+                        c_end = nc
+                        nc += 1
+                if c_end > c:
+                    cw = max(1.0, (col_x[min(c_end + 1, 500)] - col_x[min(c, 500)]) / cfg.scale)
+                else:
+                    cw = base_w
+                text_x, text_y, text_w, text_h = cx, ry, cw, ch
+                # Padding for left-aligned non-compact labels
+                if not compact and style_info.get('align', 'left') == 'left':
+                    text_x += 2
+                    text_w = max(1.0, text_w - 2)
+                    text_y += 2
+                    text_h = max(1.0, text_h - 2)
             # Attach hyperlink if present
             link = hyperlinks.get((r, c), '')
             display_val = val
             if link:
                 display_val = f'<a href="{html.escape(link)}">{html.escape(val)}</a>'
-            cell_style = _make_cell_text_style(style_info, val, cw, ch)
-            bld.add(display_val, cx, ry, cw, ch, cell_style, force=True)
+            cell_style = _make_cell_text_style(style_info, val, text_w, text_h, compact=compact)
+            bld.add(display_val, text_x, text_y, text_w, text_h, cell_style, force=True)
             count += 1
     return count
 
