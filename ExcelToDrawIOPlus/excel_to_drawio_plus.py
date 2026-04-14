@@ -632,7 +632,7 @@ class DrawioBuilder:
             f'</mxCell>'
         )
 
-    def add_edge(self, x1, y1, x2, y2, style):
+    def add_edge(self, x1, y1, x2, y2, style, points=None):
         """Add a drawio edge (line) between two explicit points.
 
         Used for connector shapes (``xdr:cxnSp``) so they render as real lines
@@ -646,11 +646,20 @@ class DrawioBuilder:
         self._max_y = max(self._max_y, y1, y2)
         cid = self._next
         self._next += 1
+        points_xml = ''
+        if points:
+            pts = []
+            for px, py in points:
+                pts.append(f'<mxPoint x="{round(px)}" y="{round(py)}"/>')
+                self._max_x = max(self._max_x, round(px))
+                self._max_y = max(self._max_y, round(py))
+            points_xml = f'<Array as="points">{"".join(pts)}</Array>'
         self._cells.append(
             f'    <mxCell id="{cid}" value="" style="{style}" edge="1" parent="1">'
             f'<mxGeometry relative="1" as="geometry">'
             f'<mxPoint x="{x1}" y="{y1}" as="sourcePoint"/>'
             f'<mxPoint x="{x2}" y="{y2}" as="targetPoint"/>'
+            f'{points_xml}'
             f'</mxGeometry>'
             f'</mxCell>'
         )
@@ -1872,19 +1881,38 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
     prst_name = prst_el.attrib.get('prst', '') if prst_el is not None else ''
     xfrm = spr.find(f'{{{A}}}xfrm')
     rot, fh, fv = _xfrm_transform(xfrm)
-    # Connector bbox generally represents a horizontal or vertical span.
-    # Using diagonals makes many orthogonal connectors point in the wrong
-    # direction, so prefer center-line endpoints along the major axis.
-    if w >= h:
-        y = ay + (h / 2.0)
-        x1, y1, x2, y2 = ax, y, ax + w, y
-        if fh:
-            x1, y1, x2, y2 = x2, y2, x1, y1
+    edge_points = None
+    if prst_name.startswith('bentConnector'):
+        # OOXML bent connectors are orthogonal/elbow polylines.
+        # When rendered as free drawio edges (no source/target cells), passing
+        # only sourcePoint/targetPoint often collapses into a straight segment.
+        # Keep opposite-corner endpoints and provide explicit waypoint(s) so the
+        # elbow remains visible.
+        if not fh and not fv:
+            x1, y1, x2, y2 = ax, ay, ax + w, ay + h
+        elif fh and not fv:
+            x1, y1, x2, y2 = ax + w, ay, ax, ay + h
+        elif fv and not fh:
+            x1, y1, x2, y2 = ax, ay + h, ax + w, ay
+        else:
+            x1, y1, x2, y2 = ax + w, ay + h, ax, ay
+        m = re.search(r'(\d+)$', prst_name or '')
+        idx = int(m.group(1)) if m else 2
+        # bentConnector2/4 and 3/5 are mirrored variants; use opposite bend.
+        first_corner = (x2, y1) if (idx % 2 == 0) else (x1, y2)
+        edge_points = [first_corner]
     else:
-        x = ax + (w / 2.0)
-        x1, y1, x2, y2 = x, ay, x, ay + h
-        if fv:
-            x1, y1, x2, y2 = x2, y2, x1, y1
+        # Non-elbow connectors: center-line endpoints along the major axis.
+        if w >= h:
+            y = ay + (h / 2.0)
+            x1, y1, x2, y2 = ax, y, ax + w, y
+            if fh:
+                x1, y1, x2, y2 = x2, y2, x1, y1
+        else:
+            x = ax + (w / 2.0)
+            x1, y1, x2, y2 = x, ay, x, ay + h
+            if fv:
+                x1, y1, x2, y2 = x2, y2, x1, y1
     eff_rot = rot
     # Elbow connectors are usually quarter-turn oriented; snap near-right-angle
     # rotations to avoid mirrored routing caused by tiny float/import noise.
@@ -1899,6 +1927,11 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
         # Use negative rotation to avoid mirrored connector direction.
         x1, y1 = _rotate_point(x1, y1, cx, cy, -eff_rot)
         x2, y2 = _rotate_point(x2, y2, cx, cy, -eff_rot)
+        if edge_points:
+            edge_points = [
+                _rotate_point(px, py, cx, cy, -eff_rot)
+                for px, py in edge_points
+            ]
 
     # Line appearance
     ln = spr.find(f'{{{A}}}ln')
@@ -1940,7 +1973,7 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
         parts.append('endArrow=none')
     parts.extend(ln_parts)
     style = ';'.join(parts) + ';'
-    bld.add_edge(x1, y1, x2, y2, style)
+    bld.add_edge(x1, y1, x2, y2, style, points=edge_points)
 
 
 def _emit_cxnsp(cxn, pax, pay, sx, sy, bld):
