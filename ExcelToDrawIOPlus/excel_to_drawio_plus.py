@@ -33,10 +33,38 @@ A = 'http://schemas.openxmlformats.org/drawingml/2006/main'
 R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 SS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
 ASVG = 'http://schemas.microsoft.com/office/drawing/2016/SVG/main'
+MC = 'http://schemas.openxmlformats.org/markup-compatibility/2006'
+A14 = 'http://schemas.microsoft.com/office/drawing/2010/main'
 
 # Image formats that browsers (and therefore drawio) can render as a data URI.
 RENDERABLE_IMG_EXTS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'svg', 'webp'}
 REL = 'http://schemas.openxmlformats.org/package/2006/relationships'
+
+# DrawingML preset dash patterns -> drawio dashPattern strings.
+PRST_DASH_MAP = {
+    'solid': None,
+    'dash': '8 4',
+    'dot': '1 4',
+    'dashDot': '8 4 1 4',
+    'lgDash': '16 4',
+    'sysDash': '5 2',
+    'sysDot': '1 2',
+    'lgDashDot': '16 4 1 4',
+    'lgDashDotDot': '16 4 1 4 1 4',
+    'dashDotDot': '8 4 1 4 1 4',
+    'sysDashDot': '5 2 1 2',
+    'sysDashDotDot': '5 2 1 2 1 2',
+}
+
+# DrawingML arrow head type -> drawio arrow style.
+ARROW_MAP = {
+    'triangle': 'classic',
+    'arrow': 'classic',
+    'stealth': 'classicThin',
+    'diamond': 'diamondThin',
+    'oval': 'oval',
+    'none': 'none',
+}
 
 # ======================================================================
 #  Color Tables
@@ -407,8 +435,13 @@ class DrawioBuilder:
             f'</mxCell>'
         )
 
-    def add_image(self, x, y, w, h, data_uri):
-        """Add an embedded image as a DrawIO image shape."""
+    def add_image(self, x, y, w, h, data_uri, extra_style=None):
+        """Add an embedded image as a DrawIO image shape.
+
+        ``extra_style`` may be a string of already-joined style fragments (no
+        leading/trailing ``;``) such as ``"rotation=90;flipH=1"`` that will be
+        appended after the default image style.
+        """
         x, y = round(x), round(y)
         w, h = round(max(w, 1)), round(max(h, 1))
         self._max_x = max(self._max_x, x + w)
@@ -418,6 +451,8 @@ class DrawioBuilder:
         style = (f'shape=image;verticalLabelPosition=bottom;labelBackgroundColor=default;'
                  f'verticalAlign=top;aspect=fixed;imageAspect=0;'
                  f'image={data_uri};')
+        if extra_style:
+            style += extra_style.strip(';') + ';'
         self._cells.append(
             f'    <mxCell id="{cid}" value="" style="{style}" vertex="1" parent="1">'
             f'<mxGeometry x="{x}" y="{y}" width="{w}" height="{h}" as="geometry"/>'
@@ -1160,11 +1195,15 @@ def _sp_font_style(txb):
     return extra, None
 
 
-def _make_shape_style(prst, fill, lc, lw, fsz, font_extra=None):
+def _make_shape_style(prst, fill, lc, lw, fsz, font_extra=None,
+                      shape_override=None, extra_parts=None):
     parts = ['whiteSpace=wrap', 'html=1']
-    extra = GEOM_STYLES.get(prst, '')
-    if extra:
-        parts.append(extra.rstrip(';'))
+    if shape_override:
+        parts.append(shape_override.rstrip(';'))
+    else:
+        extra = GEOM_STYLES.get(prst, '')
+        if extra:
+            parts.append(extra.rstrip(';'))
     parts.append(f'fillColor={fill}' if fill != 'none' else 'fillColor=none')
     parts.append(f'strokeColor={lc}' if lc != 'none' else 'strokeColor=none')
     if lw > 1:
@@ -1176,6 +1215,8 @@ def _make_shape_style(prst, fill, lc, lw, fsz, font_extra=None):
             parts.append(f'fontColor={font_extra["fontColor"]}')
         if 'fontStyle' in font_extra:
             parts.append(f'fontStyle={font_extra["fontStyle"]}')
+    if extra_parts:
+        parts.extend(p for p in extra_parts if p)
     return ';'.join(parts) + ';'
 
 
@@ -1197,16 +1238,252 @@ def _get_xfrm(xfrm):
     return ox, oy, ecx, ecy, chox, choy, chcx, chcy
 
 
+def _descend_alt_content(parent):
+    """Return a flat list of effective children, unwrapping mc:AlternateContent.
+
+    Modern Office documents wrap shapes in
+    ``<mc:AlternateContent><mc:Choice…/><mc:Fallback…/></mc:AlternateContent>``
+    where ``mc:Choice`` uses features we do not implement (a14 icons, imgProps,
+    etc). Preferring ``mc:Fallback`` lets us pick up PNG/JPG previews even for
+    Office Icons and OLE embedded objects.
+    """
+    out = []
+    for child in parent:
+        tag = child.tag
+        if tag.startswith('{' + MC + '}') and tag.endswith('}AlternateContent'):
+            fb = child.find(f'{{{MC}}}Fallback')
+            if fb is not None:
+                out.extend(list(fb))
+                continue
+            ch = child.find(f'{{{MC}}}Choice')
+            if ch is not None:
+                out.extend(list(ch))
+                continue
+        else:
+            out.append(child)
+    return out
+
+
+def _xfrm_transform(xfrm):
+    """Read (rotation_deg, flipH, flipV) from an ``a:xfrm`` element."""
+    if xfrm is None:
+        return 0.0, 0, 0
+    rot = 0.0
+    try:
+        rot_raw = xfrm.attrib.get('rot')
+        if rot_raw is not None:
+            rot = int(rot_raw) / 60000.0
+    except (TypeError, ValueError):
+        rot = 0.0
+    fh = 1 if xfrm.attrib.get('flipH') == '1' else 0
+    fv = 1 if xfrm.attrib.get('flipV') == '1' else 0
+    return rot, fh, fv
+
+
+def _append_transform_style(parts, rot, fh, fv):
+    """Append ``rotation``/``flipH``/``flipV`` fragments when non-zero."""
+    if rot:
+        parts.append(f'rotation={round(rot, 2)}')
+    if fh:
+        parts.append('flipH=1')
+    if fv:
+        parts.append('flipV=1')
+
+
+def _ln_style_parts(ln):
+    """Extract drawio style fragments (dash/arrows) from an ``a:ln`` element."""
+    parts = []
+    if ln is None:
+        return parts, False, False
+    head = ln.find(f'{{{A}}}headEnd')
+    tail = ln.find(f'{{{A}}}tailEnd')
+    has_head = head is not None
+    has_tail = tail is not None
+    if has_head:
+        htype = head.attrib.get('type', 'none')
+        parts.append(f'startArrow={ARROW_MAP.get(htype, "classic")}')
+    if has_tail:
+        ttype = tail.attrib.get('type', 'none')
+        parts.append(f'endArrow={ARROW_MAP.get(ttype, "classic")}')
+    prst = ln.find(f'{{{A}}}prstDash')
+    if prst is not None:
+        pval = prst.attrib.get('val', 'solid')
+        dp = PRST_DASH_MAP.get(pval)
+        if dp:
+            parts.append('dashed=1')
+            parts.append(f'dashPattern={dp}')
+    return parts, has_head, has_tail
+
+
+def _extract_txbody_html(txBody):
+    """Walk an ``xdr:txBody`` and return (html, has_rich).
+
+    When any run has non-default formatting (color/size/bold/italic/underline),
+    returns an HTML-escaped label with inline ``<font>``/``<b>``/``<i>``/``<u>``
+    tags. When all runs are plain, returns the plain text with ``has_rich=False``
+    so callers can keep the legacy path.
+    """
+    if txBody is None:
+        return '', False
+    paragraphs = []
+    has_rich = False
+    plain_parts = []
+    for p in txBody.findall(f'{{{A}}}p'):
+        runs_html = []
+        for r in p.findall(f'{{{A}}}r'):
+            t_el = r.find(f'{{{A}}}t')
+            text = t_el.text if (t_el is not None and t_el.text) else ''
+            if not text:
+                continue
+            plain_parts.append(text)
+            esc = html.escape(text)
+            rpr = r.find(f'{{{A}}}rPr')
+            style_bits = []
+            color = None
+            bold = italic = underline = False
+            if rpr is not None:
+                sz = rpr.attrib.get('sz')
+                if sz:
+                    try:
+                        style_bits.append(f'font-size:{int(sz) // 100}px')
+                    except ValueError:
+                        pass
+                solid = rpr.find(f'{{{A}}}solidFill')
+                if solid is not None:
+                    color = _parse_drawing_color(solid)
+                bold = rpr.attrib.get('b') == '1'
+                italic = rpr.attrib.get('i') == '1'
+                underline = rpr.attrib.get('u', 'none') not in ('none', '')
+            if color and color not in ('#000000',):
+                open_tag = f'<font color="{color}"'
+                if style_bits:
+                    open_tag += f' style="{";".join(style_bits)}"'
+                open_tag += '>'
+                close_tag = '</font>'
+            elif style_bits:
+                open_tag = f'<font style="{";".join(style_bits)}">'
+                close_tag = '</font>'
+            else:
+                open_tag = ''
+                close_tag = ''
+            chunk = esc
+            if bold:
+                chunk = f'<b>{chunk}</b>'
+                has_rich = True
+            if italic:
+                chunk = f'<i>{chunk}</i>'
+                has_rich = True
+            if underline:
+                chunk = f'<u>{chunk}</u>'
+                has_rich = True
+            if open_tag:
+                chunk = f'{open_tag}{chunk}{close_tag}'
+                has_rich = True
+            runs_html.append(chunk)
+        if runs_html:
+            paragraphs.append(''.join(runs_html))
+    if not paragraphs:
+        return '', False
+    if has_rich:
+        return '<br>'.join(paragraphs), True
+    return '\n'.join(plain_parts), False
+
+
+def _custgeom_to_stencil(path_elem):
+    """Convert an ``a:path`` under ``a:pathLst`` to a drawio stencil string.
+
+    Returns ``'stencil(<base64>)'`` or ``None`` when the path is empty or
+    malformed. Bezier and line segments are mapped 1:1 to drawio stencil
+    primitives. Quadratic Bezier curves are promoted to cubic using the
+    standard formula ``C1 = P0 + 2/3 (P1 - P0)``, ``C2 = P2 + 2/3 (P1 - P2)``.
+    """
+    if path_elem is None:
+        return None
+    try:
+        w = int(path_elem.attrib.get('w', '0'))
+        h = int(path_elem.attrib.get('h', '0'))
+    except ValueError:
+        return None
+    if w <= 0 or h <= 0:
+        return None
+    commands = []
+    cursor = (0.0, 0.0)
+
+    def _pts(node):
+        out = []
+        for pt in node.findall(f'{{{A}}}pt'):
+            try:
+                out.append((float(pt.attrib.get('x', '0')),
+                            float(pt.attrib.get('y', '0'))))
+            except ValueError:
+                return []
+        return out
+
+    for child in path_elem:
+        tag = child.tag.split('}')[-1]
+        if tag == 'moveTo':
+            pts = _pts(child)
+            if pts:
+                x, y = pts[0]
+                commands.append(f'<move x="{x:.2f}" y="{y:.2f}"/>')
+                cursor = (x, y)
+        elif tag == 'lnTo':
+            pts = _pts(child)
+            if pts:
+                x, y = pts[0]
+                commands.append(f'<line x="{x:.2f}" y="{y:.2f}"/>')
+                cursor = (x, y)
+        elif tag == 'cubicBezTo':
+            pts = _pts(child)
+            if len(pts) == 3:
+                (x1, y1), (x2, y2), (x3, y3) = pts
+                commands.append(
+                    f'<curve x1="{x1:.2f}" y1="{y1:.2f}" '
+                    f'x2="{x2:.2f}" y2="{y2:.2f}" '
+                    f'x3="{x3:.2f}" y3="{y3:.2f}"/>'
+                )
+                cursor = (x3, y3)
+        elif tag == 'quadBezTo':
+            pts = _pts(child)
+            if len(pts) == 2:
+                (qx, qy), (px, py) = pts
+                x0, y0 = cursor
+                c1x = x0 + 2 / 3 * (qx - x0)
+                c1y = y0 + 2 / 3 * (qy - y0)
+                c2x = px + 2 / 3 * (qx - px)
+                c2y = py + 2 / 3 * (qy - py)
+                commands.append(
+                    f'<curve x1="{c1x:.2f}" y1="{c1y:.2f}" '
+                    f'x2="{c2x:.2f}" y2="{c2y:.2f}" '
+                    f'x3="{px:.2f}" y3="{py:.2f}"/>'
+                )
+                cursor = (px, py)
+        elif tag == 'close':
+            commands.append('<close/>')
+    if not commands:
+        return None
+    stencil_xml = (
+        f'<shape h="{h}" w="{w}" aspect="variable" strokewidth="inherit">'
+        '<foreground><path>'
+        + ''.join(commands)
+        + '</path><fillstroke/></foreground></shape>'
+    )
+    b64 = base64.b64encode(stencil_xml.encode('utf-8')).decode('ascii')
+    return f'stencil({b64})'
+
+
 # ======================================================================
 #  Image Extraction
 # ======================================================================
 def _extract_images(z, drawing_path):
     """Extract images referenced by drawing XML.
 
-    Returns {rId: data_uri_or_None}. ``None`` marks a relationship that exists
-    but points at an image format the browser (and drawio) cannot render
+    Returns {rId: data_uri_or_url_or_None}. ``None`` marks a relationship that
+    exists but points at an image format the browser (and drawio) cannot render
     directly. Callers should draw a placeholder rectangle for those instead of
-    emitting a broken <img>.
+    emitting a broken <img>. External ``TargetMode="External"`` relationships
+    with an ``http(s)://`` URL are passed through verbatim so drawio can load
+    the image at render time.
 
     For EMF/WMF/TIFF entries, if a same-stem PNG/JPG/SVG sibling exists in
     ``xl/media/`` (Office frequently ships both the vector and a raster
@@ -1235,6 +1512,13 @@ def _extract_images(z, drawing_path):
         rid = rel.attrib.get('Id', '')
         target = rel.attrib.get('Target', '')
         if not rid or not target:
+            continue
+        # External (linked) image — pass URL through when renderable by browser.
+        if rel.attrib.get('TargetMode') == 'External':
+            if target.startswith(('http://', 'https://')):
+                images[rid] = target
+            else:
+                images[rid] = None
             continue
         img_path = 'xl/drawings/' + target if not target.startswith('/') else target.lstrip('/')
         img_path = img_path.replace('/../', '/').replace('/drawings/media/', '/media/')
@@ -1282,6 +1566,47 @@ def _extract_images(z, drawing_path):
 # ======================================================================
 #  Shape / Connector / Picture Emitters
 # ======================================================================
+def _render_sp(sp, ax, ay, w, h, bld):
+    """Render a shape at a resolved pixel rect, applying transform/line/geom/text."""
+    spr = sp.find(f'{{{XDR}}}spPr')
+    if spr is None:
+        return
+    if w < 1 or h < 1:
+        return
+    fill = _sp_fill(spr)
+    lc, lw = _sp_line(spr)
+    prst = _sp_geom(spr)
+    txb = sp.find(f'{{{XDR}}}txBody')
+    html_text, has_rich = _extract_txbody_html(txb)
+    plain_text = _get_text(sp)
+    text_value = html_text if has_rich else plain_text
+    if not text_value and fill in ('#FFFFFF', 'none') and lc == 'none':
+        return
+    fsz = _sp_fontsize(txb)
+    fe, _ = _sp_font_style(txb)
+
+    # Optional custGeom → drawio stencil
+    shape_override = None
+    custgeom = spr.find(f'{{{A}}}custGeom')
+    if custgeom is not None:
+        path = custgeom.find(f'{{{A}}}pathLst/{{{A}}}path')
+        stencil = _custgeom_to_stencil(path)
+        if stencil:
+            shape_override = f'shape={stencil}'
+
+    extra = []
+    ln = spr.find(f'{{{A}}}ln')
+    ln_parts, _, _ = _ln_style_parts(ln)
+    extra.extend(ln_parts)
+    xfrm = spr.find(f'{{{A}}}xfrm')
+    rot, fh, fv = _xfrm_transform(xfrm)
+    _append_transform_style(extra, rot, fh, fv)
+
+    style = _make_shape_style(prst, fill, lc, lw, fsz, fe,
+                              shape_override=shape_override, extra_parts=extra)
+    bld.add(text_value, ax, ay, w, h, style, force=bool(text_value))
+
+
 def _emit_sp(sp, pax, pay, sx, sy, bld):
     spr = sp.find(f'{{{XDR}}}spPr')
     if spr is None:
@@ -1297,19 +1622,7 @@ def _emit_sp(sp, pax, pay, sx, sy, bld):
     ay = pay + int(off.attrib.get('y', 0)) * sy
     w = int(ext.attrib.get('cx', 0)) * sx
     h = int(ext.attrib.get('cy', 0)) * sy
-    if w < 1 or h < 1:
-        return
-    text = _get_text(sp)
-    fill = _sp_fill(spr)
-    lc, lw = _sp_line(spr)
-    prst = _sp_geom(spr)
-    txb = sp.find(f'{{{XDR}}}txBody')
-    fsz = _sp_fontsize(txb)
-    fe, _ = _sp_font_style(txb)
-    if not text and fill in ('#FFFFFF', 'none') and lc == 'none':
-        return
-    style = _make_shape_style(prst, fill, lc, lw, fsz, fe)
-    bld.add(text, ax, ay, w, h, style, force=bool(text))
+    _render_sp(sp, ax, ay, w, h, bld)
 
 
 def _emit_cxnsp(cxn, pax, pay, sx, sy, bld):
@@ -1341,10 +1654,20 @@ def _emit_cxnsp(cxn, pax, pay, sx, sy, bld):
         color = '#000000'
     lw_emu = int(ln.attrib.get('w', '12700')) if ln is not None else 12700
     lw_px = max(1, round(lw_emu / 12700))
+    ln_parts, has_head, has_tail = _ln_style_parts(ln)
+    rot, fh, fv = _xfrm_transform(xfrm)
+    extras = list(ln_parts)
+    # Suppress drawio's default classic endArrow when OOXML has no markers.
+    if not has_head:
+        extras.append('startArrow=none')
+    if not has_tail:
+        extras.append('endArrow=none')
+    _append_transform_style(extras, rot, fh, fv)
     if raw_w < 1 or raw_h < 1:
-        style = f'whiteSpace=wrap;html=1;fillColor={color};strokeColor={color};strokeWidth={lw_px};'
+        base = f'whiteSpace=wrap;html=1;fillColor={color};strokeColor={color};strokeWidth={lw_px}'
     else:
-        style = f'whiteSpace=wrap;html=1;fillColor=none;strokeColor={color};strokeWidth={lw_px};'
+        base = f'whiteSpace=wrap;html=1;fillColor=none;strokeColor={color};strokeWidth={lw_px}'
+    style = base + (';' + ';'.join(extras) if extras else '') + ';'
     bld.add('', ax, ay, w, h, style)
 
 
@@ -1393,19 +1716,34 @@ def _emit_pic(pic, images, pax, pay, sx, sy, bld):
     ay = pay + int(off.attrib.get('y', 0)) * sy
     w = int(ext.attrib.get('cx', 0)) * sx
     h = int(ext.attrib.get('cy', 0)) * sy
+    _render_pic_at_rect(ax, ay, w, h, data_uri,
+                        (primary_rid or chosen_rid), xfrm, bld)
+
+
+def _render_pic_at_rect(ax, ay, w, h, data_uri, has_ref, xfrm, bld):
+    """Render a picture at a resolved pixel rect, honoring rotation/flip.
+
+    When ``data_uri`` is falsy but ``has_ref`` is true, draw a dashed
+    placeholder so the layout is preserved for unsupported formats.
+    """
     if w < 1 or h < 1:
         return
-
+    rot, fh, fv = _xfrm_transform(xfrm)
+    extras = []
+    _append_transform_style(extras, rot, fh, fv)
+    extra_style = ';'.join(extras) if extras else None
     if data_uri:
-        bld.add_image(ax, ay, w, h, data_uri)
+        bld.add_image(ax, ay, w, h, data_uri, extra_style=extra_style)
         return
-    # Unsupported format (EMF/WMF/TIFF without fallback, OLE, …): draw a
-    # dashed placeholder so the user can see where the image belongs.
-    if primary_rid or chosen_rid:
-        placeholder = ('whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#BDBDBD;'
-                       'dashed=1;align=center;verticalAlign=middle;fontSize=8;'
-                       'fontColor=#757575;')
-        bld.add('[image]', ax, ay, w, h, placeholder)
+    if has_ref:
+        placeholder_parts = [
+            'whiteSpace=wrap', 'html=1', 'fillColor=#F5F5F5',
+            'strokeColor=#BDBDBD', 'dashed=1', 'align=center',
+            'verticalAlign=middle', 'fontSize=8', 'fontColor=#757575',
+        ]
+        if extras:
+            placeholder_parts.extend(extras)
+        bld.add('[image]', ax, ay, w, h, ';'.join(placeholder_parts) + ';')
 
 
 def _walk_group(grp, pax, pay, sx, sy, bld, images, depth=0):
@@ -1424,7 +1762,7 @@ def _walk_group(grp, pax, pay, sx, sy, bld, images, depth=0):
     csy = (gh / chcy) if chcy else sy
     cox = gax - chox * csx
     coy = gay - choy * csy
-    for child in grp:
+    for child in _descend_alt_content(grp):
         ct = child.tag.split('}')[-1]
         if ct == 'sp':
             _emit_sp(child, cox, coy, csx, csy, bld)
@@ -1481,23 +1819,10 @@ def _add_drawing_shapes(z, drawing_path, col_x, row_y, bld, cfg):
         if rect is None:
             continue
         anc_x, anc_y, anc_w, anc_h = rect
-        for child in anchor:
+        for child in _descend_alt_content(anchor):
             ct = child.tag.split('}')[-1]
             if ct == 'sp':
-                spr = child.find(f'{{{XDR}}}spPr')
-                if spr is None:
-                    continue
-                text = _get_text(child)
-                fill = _sp_fill(spr)
-                lc, lw = _sp_line(spr)
-                prst = _sp_geom(spr)
-                txb = child.find(f'{{{XDR}}}txBody')
-                fsz = _sp_fontsize(txb)
-                fe, _ = _sp_font_style(txb)
-                if not text and fill in ('#FFFFFF', 'none') and lc == 'none':
-                    continue
-                style = _make_shape_style(prst, fill, lc, lw, fsz, fe)
-                bld.add(text, anc_x, anc_y, anc_w, anc_h, style, force=bool(text))
+                _render_sp(child, anc_x, anc_y, anc_w, anc_h, bld)
             elif ct == 'grpSp':
                 grp_pr = child.find(f'{{{XDR}}}grpSpPr')
                 if grp_pr is None:
@@ -1510,7 +1835,7 @@ def _add_drawing_shapes(z, drawing_path, col_x, row_y, bld, cfg):
                 csy = (anc_h / chcy) if chcy else sc
                 cox = anc_x - chox * csx
                 coy = anc_y - choy * csy
-                for gc in child:
+                for gc in _descend_alt_content(child):
                     gct = gc.tag.split('}')[-1]
                     if gct == 'sp':
                         _emit_sp(gc, cox, coy, csx, csy, bld)
@@ -1523,16 +1848,31 @@ def _add_drawing_shapes(z, drawing_path, col_x, row_y, bld, cfg):
             elif ct == 'cxnSp':
                 _emit_cxnsp(child, 0, 0, sc, sc, bld)
             elif ct == 'pic':
-                # Top-level picture in anchor: use anchor position
+                # Top-level picture in anchor: resolve the primary/SVG alternate
+                # rid and render at the anchor rect.
                 blip_fill = child.find(f'{{{XDR}}}blipFill')
                 if blip_fill is None:
                     continue
                 blip = blip_fill.find(f'{{{A}}}blip')
                 if blip is None:
                     continue
-                rid = blip.attrib.get(f'{{{R}}}embed', '')
-                if rid and rid in images:
-                    bld.add_image(anc_x, anc_y, anc_w, anc_h, images[rid])
+                primary_rid = blip.attrib.get(f'{{{R}}}embed', '')
+                chosen_rid = primary_rid
+                ext_lst = blip.find(f'{{{A}}}extLst')
+                if ext_lst is not None:
+                    svg_blip = ext_lst.find(f'.//{{{ASVG}}}svgBlip')
+                    if svg_blip is not None:
+                        svg_rid = svg_blip.attrib.get(f'{{{R}}}embed', '')
+                        if svg_rid and images.get(svg_rid):
+                            chosen_rid = svg_rid
+                data_uri = images.get(chosen_rid)
+                if not data_uri and primary_rid and images.get(primary_rid):
+                    data_uri = images[primary_rid]
+                spr = child.find(f'{{{XDR}}}spPr')
+                pic_xfrm = spr.find(f'{{{A}}}xfrm') if spr is not None else None
+                _render_pic_at_rect(anc_x, anc_y, anc_w, anc_h, data_uri,
+                                    bool(primary_rid or chosen_rid),
+                                    pic_xfrm, bld)
 
 
 # ======================================================================
