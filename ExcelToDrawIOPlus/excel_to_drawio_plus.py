@@ -1898,8 +1898,10 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
             x1, y1, x2, y2 = ax + w, ay + h, ax, ay
         m = re.search(r'(\d+)$', prst_name or '')
         idx = int(m.group(1)) if m else 2
-        # bentConnector2/4 and 3/5 are mirrored variants; use opposite bend.
-        first_corner = (x2, y1) if (idx % 2 == 0) else (x1, y2)
+        # bentConnector2/4 and 3/5 are mirrored variants.
+        # Swap bend corner selection so the elbow direction rotates 180°
+        # from the previous mapping (matches Excel orientation better).
+        first_corner = (x1, y2) if (idx % 2 == 0) else (x2, y1)
         edge_points = [first_corner]
     else:
         # Non-elbow connectors: center-line endpoints along the major axis.
