@@ -1898,11 +1898,19 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
             x1, y1, x2, y2 = ax + w, ay + h, ax, ay
         m = re.search(r'(\d+)$', prst_name or '')
         idx = int(m.group(1)) if m else 2
-        # bentConnector2/4 and 3/5 are mirrored variants.
-        # Swap bend corner selection so the elbow direction rotates 180°
-        # from the previous mapping (matches Excel orientation better).
-        first_corner = (x1, y2) if (idx % 2 == 0) else (x2, y1)
-        edge_points = [first_corner]
+        # Bent connectors often need a "crank" route (two waypoints) to avoid
+        # collapsing into a straight segment in drawio free-edge rendering.
+        mid_x = x1 + (x2 - x1) / 2.0
+        mid_y = y1 + (y2 - y1) / 2.0
+        if idx in (2, 4):
+            # Horizontal-first then vertical.
+            edge_points = [(mid_x, y1), (mid_x, y2)]
+        elif idx in (3, 5):
+            # Vertical-first then horizontal.
+            edge_points = [(x1, mid_y), (x2, mid_y)]
+        else:
+            # Fallback for unexpected preset numbers.
+            edge_points = [(x2, y1)]
     else:
         # Non-elbow connectors: center-line endpoints along the major axis.
         if w >= h:
@@ -1953,13 +1961,8 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
     # Preset connector geometry -> drawio edge routing hint.
     parts = ['html=1', 'rounded=0', 'jumpStyle=none']
     if prst_name.startswith('bentConnector'):
-        # orthogonalEdgeStyle can over-route wildly without source/target IDs.
-        # elbowEdgeStyle is more stable for free-floating endpoints.
-        parts.append('edgeStyle=elbowEdgeStyle')
-        if abs(x2 - x1) >= abs(y2 - y1):
-            parts.append('elbow=horizontal')
-        else:
-            parts.append('elbow=vertical')
+        parts.append('edgeStyle=orthogonalEdgeStyle')
+        parts.append('orthogonal=1')
     elif prst_name.startswith('curvedConnector'):
         parts.append('edgeStyle=none')
         parts.append('curved=1')
