@@ -1880,10 +1880,8 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
         x1, y1, x2, y2 = ax + w, ay + h, ax, ay
     if rot:
         cx, cy = ax + (w / 2.0), ay + (h / 2.0)
-        # OOXML a:xfrm rot uses opposite sign vs drawio screen coordinates here.
-        # Use negative rotation to avoid mirrored connector direction.
-        x1, y1 = _rotate_point(x1, y1, cx, cy, -rot)
-        x2, y2 = _rotate_point(x2, y2, cx, cy, -rot)
+        x1, y1 = _rotate_point(x1, y1, cx, cy, rot)
+        x2, y2 = _rotate_point(x2, y2, cx, cy, rot)
 
     # Line appearance
     ln = spr.find(f'{{{A}}}ln')
