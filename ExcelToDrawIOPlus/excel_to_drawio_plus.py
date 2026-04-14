@@ -835,6 +835,17 @@ def _build_merged_cell_maps(sh_root):
     return merged_topleft, merged_children
 
 
+def _build_merge_owner_map(sh_root):
+    """Map each merged-cell coordinate to the merge block top-left cell."""
+    merged_topleft, _ = _build_merged_cell_maps(sh_root)
+    owner = {}
+    for (r1, c1), (r2, c2) in merged_topleft.items():
+        for rr in range(r1, r2 + 1):
+            for cc in range(c1, c2 + 1):
+                owner[(rr, cc)] = (r1, c1)
+    return owner
+
+
 def _read_cell_raw_text(cell, shared_strings):
     ns = {'x': SS}
     cell_type = cell.attrib.get('t', '')
@@ -1048,6 +1059,7 @@ def _add_cell_borders(sh_root, col_x, row_y, col_w, row_h, xf_borders, xf_fills,
 
     # Pre-scan: record fill color per (r, c) to drive internal-border suppression.
     fill_positions = {}
+    merge_owner = _build_merge_owner_map(sh_root)
     for row_el in sh_root.findall('.//x:row', ns):
         r = int(row_el.attrib.get('r', 1)) - 1
         for cell in row_el.findall('x:c', ns):
@@ -1089,6 +1101,7 @@ def _add_cell_borders(sh_root, col_x, row_y, col_w, row_h, xf_borders, xf_fills,
             cx = col_x[min(c, CX_LAST)] / cfg.scale
             cw = max(1.0, _chars_px(col_w[c], cfg) / cfg.scale)
             own_fill = fill_positions.get((r, c))
+            own_merge = merge_owner.get((r, c))
             for side, (color, width_px, dash, _sname) in border_info.items():
                 # Suppress internal vertical/horizontal dividers between same-fill cells.
                 if own_fill:
@@ -1099,6 +1112,16 @@ def _add_cell_borders(sh_root, col_x, row_y, col_w, row_h, xf_borders, xf_fills,
                     if side == 'top' and fill_positions.get((r - 1, c)) == own_fill:
                         continue
                     if side == 'bottom' and fill_positions.get((r + 1, c)) == own_fill:
+                        continue
+                # Suppress borders inside a merged-cell block.
+                if own_merge:
+                    if side == 'left' and merge_owner.get((r, c - 1)) == own_merge:
+                        continue
+                    if side == 'right' and merge_owner.get((r, c + 1)) == own_merge:
+                        continue
+                    if side == 'top' and merge_owner.get((r - 1, c)) == own_merge:
+                        continue
+                    if side == 'bottom' and merge_owner.get((r + 1, c)) == own_merge:
                         continue
                 dash_style = f'dashPattern={dash};' if dash else ''
                 style = (f'whiteSpace=wrap;html=1;fillColor={color};strokeColor={color};'
@@ -1476,6 +1499,18 @@ def _xfrm_transform(xfrm):
     return rot, fh, fv
 
 
+def _rotate_point(px, py, cx, cy, deg):
+    """Rotate point around center by ``deg`` degrees in screen coordinates."""
+    if not deg:
+        return px, py
+    from math import cos, radians, sin
+    t = radians(deg)
+    dx, dy = px - cx, py - cy
+    rx = dx * cos(t) - dy * sin(t)
+    ry = dx * sin(t) + dy * cos(t)
+    return cx + rx, cy + ry
+
+
 def _append_transform_style(parts, rot, fh, fv):
     """Append ``rotation``/``flipH``/``flipV`` fragments when non-zero."""
     if rot:
@@ -1834,7 +1869,7 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
     if spr is None:
         return
     xfrm = spr.find(f'{{{A}}}xfrm')
-    _, fh, fv = _xfrm_transform(xfrm)
+    rot, fh, fv = _xfrm_transform(xfrm)
     if not fh and not fv:
         x1, y1, x2, y2 = ax, ay, ax + w, ay + h
     elif fh and not fv:
@@ -1843,6 +1878,12 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
         x1, y1, x2, y2 = ax, ay + h, ax + w, ay
     else:
         x1, y1, x2, y2 = ax + w, ay + h, ax, ay
+    if rot:
+        cx, cy = ax + (w / 2.0), ay + (h / 2.0)
+        # OOXML a:xfrm rot uses opposite sign vs drawio screen coordinates here.
+        # Use negative rotation to avoid mirrored connector direction.
+        x1, y1 = _rotate_point(x1, y1, cx, cy, -rot)
+        x2, y2 = _rotate_point(x2, y2, cx, cy, -rot)
 
     # Line appearance
     ln = spr.find(f'{{{A}}}ln')
