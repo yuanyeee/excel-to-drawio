@@ -1951,10 +1951,18 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
     # Preset connector geometry -> drawio edge routing hint.
     parts = ['html=1', 'rounded=0', 'jumpStyle=none']
     if prst_name.startswith('bentConnector'):
-        parts.append('edgeStyle=orthogonalEdgeStyle')
+        # orthogonalEdgeStyle can over-route wildly without source/target IDs.
+        # elbowEdgeStyle is more stable for free-floating endpoints.
+        parts.append('edgeStyle=elbowEdgeStyle')
+        if abs(x2 - x1) >= abs(y2 - y1):
+            parts.append('elbow=horizontal')
+        else:
+            parts.append('elbow=vertical')
     elif prst_name.startswith('curvedConnector'):
-        parts.append('edgeStyle=orthogonalEdgeStyle')
+        parts.append('edgeStyle=none')
         parts.append('curved=1')
+    elif prst_name.startswith('straightConnector'):
+        parts.append('edgeStyle=none')
     parts.append(f'strokeColor={color}')
     if lw_px > 1:
         parts.append(f'strokeWidth={lw_px}')
