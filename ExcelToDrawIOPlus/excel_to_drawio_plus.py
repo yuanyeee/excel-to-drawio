@@ -1868,6 +1868,8 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
     spr = cxn.find(f'{{{XDR}}}spPr')
     if spr is None:
         return
+    prst_el = spr.find(f'{{{A}}}prstGeom')
+    prst_name = prst_el.attrib.get('prst', '') if prst_el is not None else ''
     xfrm = spr.find(f'{{{A}}}xfrm')
     rot, fh, fv = _xfrm_transform(xfrm)
     if not fh and not fv:
@@ -1878,10 +1880,20 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
         x1, y1, x2, y2 = ax, ay + h, ax + w, ay
     else:
         x1, y1, x2, y2 = ax + w, ay + h, ax, ay
-    if rot:
+    eff_rot = rot
+    # Elbow connectors are usually quarter-turn oriented; snap near-right-angle
+    # rotations to avoid mirrored routing caused by tiny float/import noise.
+    if prst_name.startswith('bentConnector') and rot:
+        q = round(rot / 90.0)
+        snapped = q * 90.0
+        if abs(rot - snapped) <= 1.0:
+            eff_rot = snapped
+    if eff_rot:
         cx, cy = ax + (w / 2.0), ay + (h / 2.0)
-        x1, y1 = _rotate_point(x1, y1, cx, cy, rot)
-        x2, y2 = _rotate_point(x2, y2, cx, cy, rot)
+        # OOXML a:xfrm rot uses opposite sign vs drawio screen coordinates here.
+        # Use negative rotation to avoid mirrored connector direction.
+        x1, y1 = _rotate_point(x1, y1, cx, cy, -eff_rot)
+        x2, y2 = _rotate_point(x2, y2, cx, cy, -eff_rot)
 
     # Line appearance
     ln = spr.find(f'{{{A}}}ln')
@@ -1899,8 +1911,6 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
     ln_parts, has_head, has_tail = _ln_style_parts(ln)
 
     # Preset connector geometry -> drawio edge routing hint.
-    prst_el = spr.find(f'{{{A}}}prstGeom')
-    prst_name = prst_el.attrib.get('prst', '') if prst_el is not None else ''
     parts = ['html=1', 'rounded=0', 'jumpStyle=none']
     if prst_name.startswith('bentConnector'):
         parts.append('edgeStyle=orthogonalEdgeStyle')
