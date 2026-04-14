@@ -69,19 +69,34 @@ ARROW_MAP = {
 # ======================================================================
 #  Color Tables
 # ======================================================================
+# DrawingML scheme colors. Keys MUST match the values used in OOXML
+# ``<a:schemeClr val="..."/>`` (e.g. ``accent1``). Legacy short aliases
+# (``acc1`` etc.) are kept for backwards compatibility with older callers.
+# ``_load_theme_colors`` mutates this dict in place when an .xlsx workbook
+# ships its own ``xl/theme/theme1.xml`` so per-workbook color schemes are
+# honored.
 SCHEME_COLORS = {
     'dk1': '000000', 'lt1': 'FFFFFF', 'dk2': '44546A', 'lt2': 'E7E6E6',
-    'acc1': '4472C4', 'acc2': 'ED7D31', 'acc3': 'A9D18E', 'acc4': 'FFC000',
-    'acc5': '5B9BD5', 'acc6': '70AD47', 'hlink': '0563C1', 'folHlink': '954F72',
+    'accent1': '4472C4', 'accent2': 'ED7D31', 'accent3': 'A5A5A5',
+    'accent4': 'FFC000', 'accent5': '5B9BD5', 'accent6': '70AD47',
+    'hlink': '0563C1', 'folHlink': '954F72',
     'bg1': 'FFFFFF', 'bg2': 'E7E6E6', 'tx1': '000000', 'tx2': '44546A',
     'phClr': 'FFFFFF',
+    # Legacy short aliases — keep for backwards compatibility.
+    'acc1': '4472C4', 'acc2': 'ED7D31', 'acc3': 'A5A5A5',
+    'acc4': 'FFC000', 'acc5': '5B9BD5', 'acc6': '70AD47',
 }
 
-THEME_FILL_COLORS = [
-    'FFFFFF', '000000', 'EEECE1', '1F497D',
-    '4BACC6', '4472C4', '9BBB59', 'F79646',
-    'FFFF00', 'A9D18E', '5B9BD5', '70AD47',
+# Excel theme color index order (used by <fgColor theme="N"/>):
+# 0=lt1, 1=dk1, 2=lt2, 3=dk2, 4-9=accent1..6, 10=hlink, 11=folHlink.
+# (Note: Excel swaps lt1<->dk1 and lt2<->dk2 vs. the natural OOXML order.)
+THEME_INDEX_NAMES = [
+    'lt1', 'dk1', 'lt2', 'dk2',
+    'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6',
+    'hlink', 'folHlink',
 ]
+
+THEME_FILL_COLORS = [SCHEME_COLORS[n] for n in THEME_INDEX_NAMES]
 
 INDEXED_COLORS = [
     '000000', 'FFFFFF', 'FF0000', '00FF00', '0000FF', 'FFFF00', 'FF00FF', '00FFFF',
@@ -254,7 +269,11 @@ def _normalize_font_name(name):
     return FONT_ALIASES.get(name, name)
 
 def _apply_tint(hex6, tint):
-    """Apply DrawML tint attribute (-1.0 to 1.0). >0: lighter, <0: darker."""
+    """Apply Excel cell-color ``tint`` attribute (-1.0 to 1.0).
+
+    >0: blend toward white. <0: blend toward black. Used by xf cell colors
+    (``<color theme="1" tint="-0.25"/>``).
+    """
     try:
         r, g, b = int(hex6[0:2], 16), int(hex6[2:4], 16), int(hex6[4:6], 16)
         t = float(tint)
@@ -266,6 +285,150 @@ def _apply_tint(hex6, tint):
         return f'{r:02X}{g:02X}{b:02X}'
     except Exception:
         return hex6
+
+
+def _rgb_to_hsl(r, g, b):
+    """Convert 0-255 RGB to (H, S, L) in [0, 1]."""
+    rf, gf, bf = r / 255.0, g / 255.0, b / 255.0
+    mx, mn = max(rf, gf, bf), min(rf, gf, bf)
+    l = (mx + mn) / 2.0
+    if mx == mn:
+        return 0.0, 0.0, l
+    d = mx - mn
+    s = d / (2.0 - mx - mn) if l > 0.5 else d / (mx + mn)
+    if mx == rf:
+        h = (gf - bf) / d + (6.0 if gf < bf else 0.0)
+    elif mx == gf:
+        h = (bf - rf) / d + 2.0
+    else:
+        h = (rf - gf) / d + 4.0
+    return h / 6.0, s, l
+
+
+def _hsl_to_rgb(h, s, l):
+    """Convert (H, S, L) in [0, 1] back to 0-255 RGB tuple."""
+    if s == 0:
+        v = int(round(l * 255))
+        return v, v, v
+
+    def _hue(p, q, t):
+        if t < 0:
+            t += 1
+        if t > 1:
+            t -= 1
+        if t < 1 / 6:
+            return p + (q - p) * 6 * t
+        if t < 1 / 2:
+            return q
+        if t < 2 / 3:
+            return p + (q - p) * (2 / 3 - t) * 6
+        return p
+
+    q = l * (1 + s) if l < 0.5 else l + s - l * s
+    p = 2 * l - q
+    r = _hue(p, q, h + 1 / 3)
+    g = _hue(p, q, h)
+    b = _hue(p, q, h - 1 / 3)
+    return (int(round(r * 255)),
+            int(round(g * 255)),
+            int(round(b * 255)))
+
+
+def _apply_lum_mod_off(hex6, lum_mod, lum_off):
+    """Apply DrawingML ``lumMod``/``lumOff`` via HSL luminance scaling.
+
+    OOXML defines: ``L_new = L_old * lumMod + lumOff`` where lumMod / lumOff
+    are 0..1 (read as the raw int / 100000). This is the correct algorithm —
+    the older ``_apply_tint``-based shortcut produced visibly wrong results
+    (e.g. accent2 with lumMod=75000/lumOff=0 came out gray instead of darker
+    orange).
+    """
+    try:
+        r, g, b = int(hex6[0:2], 16), int(hex6[2:4], 16), int(hex6[4:6], 16)
+        h, s, l = _rgb_to_hsl(r, g, b)
+        l = max(0.0, min(1.0, l * lum_mod + lum_off))
+        r, g, b = _hsl_to_rgb(h, s, l)
+        return f'{r:02X}{g:02X}{b:02X}'
+    except Exception:
+        return hex6
+
+
+def _apply_color_modifiers(hex6, parent):
+    """Apply DrawingML color child modifiers (lumMod/lumOff/tint/shade)."""
+    if parent is None:
+        return hex6
+    lm_el = parent.find(f'{{{A}}}lumMod')
+    lo_el = parent.find(f'{{{A}}}lumOff')
+    if lm_el is not None or lo_el is not None:
+        try:
+            lm = int(lm_el.attrib.get('val', '100000')) / 100000.0 if lm_el is not None else 1.0
+            lo = int(lo_el.attrib.get('val', '0')) / 100000.0 if lo_el is not None else 0.0
+            hex6 = _apply_lum_mod_off(hex6, lm, lo)
+        except (TypeError, ValueError):
+            pass
+    tint_el = parent.find(f'{{{A}}}tint')
+    if tint_el is not None:
+        try:
+            t = int(tint_el.attrib.get('val', '0')) / 100000.0
+            # DrawingML tint is positive (0..1) and lightens toward white.
+            hex6 = _apply_tint(hex6, t)
+        except (TypeError, ValueError):
+            pass
+    shade_el = parent.find(f'{{{A}}}shade')
+    if shade_el is not None:
+        try:
+            sval = int(shade_el.attrib.get('val', '100000')) / 100000.0
+            r, g, b = int(hex6[0:2], 16), int(hex6[2:4], 16), int(hex6[4:6], 16)
+            r = max(0, min(255, int(r * sval)))
+            g = max(0, min(255, int(g * sval)))
+            b = max(0, min(255, int(b * sval)))
+            hex6 = f'{r:02X}{g:02X}{b:02X}'
+        except (TypeError, ValueError):
+            pass
+    return hex6
+
+
+def _load_theme_colors(z):
+    """Populate ``SCHEME_COLORS`` / ``THEME_FILL_COLORS`` from ``xl/theme/theme1.xml``.
+
+    DrawingML stores 12 scheme colors in ``<a:clrScheme>``: dk1, lt1, dk2, lt2,
+    accent1..accent6, hlink, folHlink. Each child wraps either ``<a:srgbClr/>``
+    or ``<a:sysClr lastClr="..."/>``. We mutate the module-level dicts in place
+    so every subsequent ``_parse_drawing_color`` / ``_parse_color_el`` call uses
+    the workbook's actual scheme. Failing this step silently leaves the defaults
+    untouched.
+    """
+    candidates = [n for n in z.namelist()
+                  if n.startswith('xl/theme/theme') and n.endswith('.xml')]
+    if not candidates:
+        return
+    try:
+        root = ET.fromstring(z.read(sorted(candidates)[0]).decode('utf-8'))
+    except Exception:
+        return
+    scheme = root.find(f'.//{{{A}}}clrScheme')
+    if scheme is None:
+        return
+    for child in scheme:
+        name = child.tag.split('}')[-1]
+        srgb = child.find(f'{{{A}}}srgbClr')
+        sys_el = child.find(f'{{{A}}}sysClr')
+        hex6 = None
+        if srgb is not None:
+            hex6 = srgb.attrib.get('val', '').upper()
+        elif sys_el is not None:
+            hex6 = (sys_el.attrib.get('lastClr') or '').upper()
+        if hex6 and len(hex6) == 6:
+            SCHEME_COLORS[name] = hex6
+            if name.startswith('accent') and name[-1].isdigit():
+                SCHEME_COLORS['acc' + name[-1]] = hex6
+    # Refresh aliases that mirror the primary names.
+    SCHEME_COLORS['bg1'] = SCHEME_COLORS.get('lt1', SCHEME_COLORS['bg1'])
+    SCHEME_COLORS['bg2'] = SCHEME_COLORS.get('lt2', SCHEME_COLORS['bg2'])
+    SCHEME_COLORS['tx1'] = SCHEME_COLORS.get('dk1', SCHEME_COLORS['tx1'])
+    SCHEME_COLORS['tx2'] = SCHEME_COLORS.get('dk2', SCHEME_COLORS['tx2'])
+    # Refresh positional theme list used by cell fills.
+    THEME_FILL_COLORS[:] = [SCHEME_COLORS[n] for n in THEME_INDEX_NAMES]
 
 def _parse_color_el(color_el, default='#000000'):
     """Parse fgColor/bgColor/color element to '#RRGGBB' with tint correction."""
@@ -325,16 +488,26 @@ def _build_grid(sh_root, cfg):
     into the last slot of a fixed-size array.
     """
     ns = {'x': SS}
-    # Resolve default column width. Excel stores it on sheetFormatPr; when
-    # absent, default to ~9.14 which evaluates to 64 pixels via the OOXML
-    # formula at MDW=7 — matching Excel's Calibri 11 default column width.
+    # Resolve default column width and row height. Excel stores both on
+    # sheetFormatPr; when absent, default to ~9.14 (64 px via the OOXML formula
+    # at MDW=7, matching Calibri 11) and 15 pt (the Excel default row height).
+    # Honoring defaultRowHeight is critical when a workbook overrides it
+    # (e.g. with an alternate font / DPI), otherwise every implicit row drifts
+    # by a few pixels and stacks up over hundreds of rows.
     default_col_w = 9.14
+    default_row_h = 15.0
     fmt_pr = sh_root.find(f'{{{SS}}}sheetFormatPr')
     if fmt_pr is not None:
         dcw = fmt_pr.attrib.get('defaultColWidth')
         if dcw:
             try:
                 default_col_w = float(dcw)
+            except ValueError:
+                pass
+        drh = fmt_pr.attrib.get('defaultRowHeight')
+        if drh:
+            try:
+                default_row_h = float(drh)
             except ValueError:
                 pass
     col_w = defaultdict(lambda: default_col_w)
@@ -349,7 +522,7 @@ def _build_grid(sh_root, cfg):
         if mx > max_col_seen:
             max_col_seen = mx
 
-    row_h = defaultdict(lambda: 15.0)
+    row_h = defaultdict(lambda: default_row_h)
     max_row_seen = 0
     for row_el in sh_root.findall('.//x:row', ns):
         r = int(row_el.attrib.get('r', 1))
@@ -1102,22 +1275,22 @@ def _parse_drawing_color(el):
     sf = el.find(f'{{{A}}}solidFill') or el
     s = sf.find(f'{{{A}}}srgbClr')
     if s is not None:
-        return '#' + s.attrib.get('val', '000000').upper()
+        hex6 = s.attrib.get('val', '000000').upper()
+        hex6 = _apply_color_modifiers(hex6, s)
+        return '#' + hex6
     sc = sf.find(f'{{{A}}}schemeClr')
     if sc is not None:
-        base = SCHEME_COLORS.get(sc.attrib.get('val', 'dk1'), '808080')
-        lum_mod = sc.find(f'{{{A}}}lumMod')
-        lum_off = sc.find(f'{{{A}}}lumOff')
-        if lum_mod is not None or lum_off is not None:
-            mod = int(lum_mod.attrib.get('val', '100000')) / 100000 if lum_mod is not None else 1.0
-            off = int(lum_off.attrib.get('val', '0')) / 100000 if lum_off is not None else 0.0
-            base = _apply_tint(base, (mod - 1 + off))
+        name = sc.attrib.get('val', 'dk1')
+        base = SCHEME_COLORS.get(name, '808080')
+        base = _apply_color_modifiers(base, sc)
         return '#' + base.upper()
     sy = sf.find(f'{{{A}}}sysClr')
     if sy is not None:
         last = sy.attrib.get('lastClr')
         if last:
-            return '#' + last.upper()
+            hex6 = last.upper()
+            hex6 = _apply_color_modifiers(hex6, sy)
+            return '#' + hex6
     return None
 
 
@@ -1941,6 +2114,11 @@ def suggest_multi_output_path(input_path):
 #  Main Converter
 # ======================================================================
 def _prepare_resources(z):
+    # Populate SCHEME_COLORS / THEME_FILL_COLORS from the workbook's own
+    # theme1.xml before any color resolution runs. Otherwise scheme references
+    # like accent2 fall back to the built-in Office defaults, which usually
+    # mismatch the colors the user actually saved in Excel.
+    _load_theme_colors(z)
     return {
         'shared': _load_shared_strings(z),
         'xf_fills': _parse_cell_styles(z),
