@@ -1872,14 +1872,19 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
     prst_name = prst_el.attrib.get('prst', '') if prst_el is not None else ''
     xfrm = spr.find(f'{{{A}}}xfrm')
     rot, fh, fv = _xfrm_transform(xfrm)
-    if not fh and not fv:
-        x1, y1, x2, y2 = ax, ay, ax + w, ay + h
-    elif fh and not fv:
-        x1, y1, x2, y2 = ax + w, ay, ax, ay + h
-    elif fv and not fh:
-        x1, y1, x2, y2 = ax, ay + h, ax + w, ay
+    # Connector bbox generally represents a horizontal or vertical span.
+    # Using diagonals makes many orthogonal connectors point in the wrong
+    # direction, so prefer center-line endpoints along the major axis.
+    if w >= h:
+        y = ay + (h / 2.0)
+        x1, y1, x2, y2 = ax, y, ax + w, y
+        if fh:
+            x1, y1, x2, y2 = x2, y2, x1, y1
     else:
-        x1, y1, x2, y2 = ax + w, ay + h, ax, ay
+        x = ax + (w / 2.0)
+        x1, y1, x2, y2 = x, ay, x, ay + h
+        if fv:
+            x1, y1, x2, y2 = x2, y2, x1, y1
     eff_rot = rot
     # Elbow connectors are usually quarter-turn oriented; snap near-right-angle
     # rotations to avoid mirrored routing caused by tiny float/import noise.
