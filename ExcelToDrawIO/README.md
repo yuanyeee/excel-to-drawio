@@ -44,17 +44,20 @@ python excel_to_drawio.py --help
 
 ### Windows バッチ (uv 実行)
 
+各フォルダに `run_uv.bat` (CLI) と `run_gui_uv.bat` (GUI) を用意しています。
 各フォルダに `run_uv.bat` を用意しています。
 
 ```bat
 cd ExcelToDrawIO
 run_uv.bat input.xlsx
+run_gui_uv.bat
 ```
 
 内部的には次のコマンドを実行します。
 
 ```bat
 uv run excel_to_drawio.py %*
+uv run desktop_app.py
 ```
 
 ## 使い方
@@ -107,6 +110,8 @@ python excel_to_drawio.py input.xlsx --no-merge-fills
 ```bash
 cd ExcelToDrawIO
 python desktop_app.py
+# または
+uv run desktop_app.py
 ```
 
 1. **「Browse...」** をクリックして Excel ファイルを選択
