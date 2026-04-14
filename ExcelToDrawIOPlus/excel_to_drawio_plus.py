@@ -632,6 +632,29 @@ class DrawioBuilder:
             f'</mxCell>'
         )
 
+    def add_edge(self, x1, y1, x2, y2, style):
+        """Add a drawio edge (line) between two explicit points.
+
+        Used for connector shapes (``xdr:cxnSp``) so they render as real lines
+        instead of collapsed vertex rectangles. The edge has no source/target
+        cell — drawio uses the explicit ``sourcePoint``/``targetPoint`` mxPoints
+        in the geometry.
+        """
+        x1, y1 = round(x1), round(y1)
+        x2, y2 = round(x2), round(y2)
+        self._max_x = max(self._max_x, x1, x2)
+        self._max_y = max(self._max_y, y1, y2)
+        cid = self._next
+        self._next += 1
+        self._cells.append(
+            f'    <mxCell id="{cid}" value="" style="{style}" edge="1" parent="1">'
+            f'<mxGeometry relative="1" as="geometry">'
+            f'<mxPoint x="{x1}" y="{y1}" as="sourcePoint"/>'
+            f'<mxPoint x="{x2}" y="{y2}" as="targetPoint"/>'
+            f'</mxGeometry>'
+            f'</mxCell>'
+        )
+
     def diagram_xml(self, diagram_id='d1'):
         page_w = max(2000, int(self._max_x * 1.10))
         page_h = max(2000, int(self._max_y * 1.10))
@@ -1799,6 +1822,14 @@ def _emit_sp(sp, pax, pay, sx, sy, bld):
 
 
 def _emit_cxnsp(cxn, pax, pay, sx, sy, bld):
+    """Emit a connector shape as a real drawio edge.
+
+    OOXML ``xdr:cxnSp`` stores a bounding box in ``a:xfrm`` and uses
+    ``flipH``/``flipV`` to select which diagonal of that bbox the line runs
+    along. Rendering this as a vertex rectangle collapses thin lines to a
+    sliver (or invisible strip) — the connector must become a drawio edge
+    with explicit source/target points so the line body actually draws.
+    """
     spr = cxn.find(f'{{{XDR}}}spPr')
     if spr is None:
         return
@@ -1811,10 +1842,23 @@ def _emit_cxnsp(cxn, pax, pay, sx, sy, bld):
         return
     ax = pax + int(off.attrib.get('x', 0)) * sx
     ay = pay + int(off.attrib.get('y', 0)) * sy
-    raw_w = int(ext.attrib.get('cx', 0)) * sx
-    raw_h = int(ext.attrib.get('cy', 0)) * sy
-    w = raw_w if raw_w >= 1 else 2
-    h = raw_h if raw_h >= 1 else 2
+    w = int(ext.attrib.get('cx', 0)) * sx
+    h = int(ext.attrib.get('cy', 0)) * sy
+
+    # Select which bbox diagonal the line runs along. Without flip the line
+    # runs top-left → bottom-right; flipH mirrors horizontally, flipV mirrors
+    # vertically, both flips together rotate 180°.
+    _, fh, fv = _xfrm_transform(xfrm)
+    if not fh and not fv:
+        x1, y1, x2, y2 = ax, ay, ax + w, ay + h
+    elif fh and not fv:
+        x1, y1, x2, y2 = ax + w, ay, ax, ay + h
+    elif fv and not fh:
+        x1, y1, x2, y2 = ax, ay + h, ax + w, ay
+    else:
+        x1, y1, x2, y2 = ax + w, ay + h, ax, ay
+
+    # Line appearance
     ln = spr.find(f'{{{A}}}ln')
     if ln is not None and ln.find(f'{{{A}}}noFill') is not None:
         return
@@ -1828,20 +1872,27 @@ def _emit_cxnsp(cxn, pax, pay, sx, sy, bld):
     lw_emu = int(ln.attrib.get('w', '12700')) if ln is not None else 12700
     lw_px = max(1, round(lw_emu / 12700))
     ln_parts, has_head, has_tail = _ln_style_parts(ln)
-    rot, fh, fv = _xfrm_transform(xfrm)
-    extras = list(ln_parts)
-    # Suppress drawio's default classic endArrow when OOXML has no markers.
+
+    # Preset connector geometry -> drawio edge routing hint.
+    prst_el = spr.find(f'{{{A}}}prstGeom')
+    prst_name = prst_el.attrib.get('prst', '') if prst_el is not None else ''
+    parts = ['html=1', 'rounded=0', 'jumpStyle=none']
+    if prst_name.startswith('bentConnector'):
+        parts.append('edgeStyle=orthogonalEdgeStyle')
+    elif prst_name.startswith('curvedConnector'):
+        parts.append('edgeStyle=orthogonalEdgeStyle')
+        parts.append('curved=1')
+    parts.append(f'strokeColor={color}')
+    if lw_px > 1:
+        parts.append(f'strokeWidth={lw_px}')
+    # Suppress drawio's default classic arrow when OOXML has no markers.
     if not has_head:
-        extras.append('startArrow=none')
+        parts.append('startArrow=none')
     if not has_tail:
-        extras.append('endArrow=none')
-    _append_transform_style(extras, rot, fh, fv)
-    if raw_w < 1 or raw_h < 1:
-        base = f'whiteSpace=wrap;html=1;fillColor={color};strokeColor={color};strokeWidth={lw_px}'
-    else:
-        base = f'whiteSpace=wrap;html=1;fillColor=none;strokeColor={color};strokeWidth={lw_px}'
-    style = base + (';' + ';'.join(extras) if extras else '') + ';'
-    bld.add('', ax, ay, w, h, style)
+        parts.append('endArrow=none')
+    parts.extend(ln_parts)
+    style = ';'.join(parts) + ';'
+    bld.add_edge(x1, y1, x2, y2, style)
 
 
 def _emit_pic(pic, images, pax, pay, sx, sy, bld):
