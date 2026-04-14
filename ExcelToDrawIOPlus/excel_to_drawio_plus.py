@@ -632,7 +632,7 @@ class DrawioBuilder:
             f'</mxCell>'
         )
 
-    def add_edge(self, x1, y1, x2, y2, style):
+    def add_edge(self, x1, y1, x2, y2, style, points=None):
         """Add a drawio edge (line) between two explicit points.
 
         Used for connector shapes (``xdr:cxnSp``) so they render as real lines
@@ -646,11 +646,20 @@ class DrawioBuilder:
         self._max_y = max(self._max_y, y1, y2)
         cid = self._next
         self._next += 1
+        points_xml = ''
+        if points:
+            pts = []
+            for px, py in points:
+                pts.append(f'<mxPoint x="{round(px)}" y="{round(py)}"/>')
+                self._max_x = max(self._max_x, round(px))
+                self._max_y = max(self._max_y, round(py))
+            points_xml = f'<Array as="points">{"".join(pts)}</Array>'
         self._cells.append(
             f'    <mxCell id="{cid}" value="" style="{style}" edge="1" parent="1">'
             f'<mxGeometry relative="1" as="geometry">'
             f'<mxPoint x="{x1}" y="{y1}" as="sourcePoint"/>'
             f'<mxPoint x="{x2}" y="{y2}" as="targetPoint"/>'
+            f'{points_xml}'
             f'</mxGeometry>'
             f'</mxCell>'
         )
@@ -833,6 +842,17 @@ def _build_merged_cell_maps(sh_root):
                 if rr != r1 or cc != c1:
                     merged_children.add((rr, cc))
     return merged_topleft, merged_children
+
+
+def _build_merge_owner_map(sh_root):
+    """Map each merged-cell coordinate to the merge block top-left cell."""
+    merged_topleft, _ = _build_merged_cell_maps(sh_root)
+    owner = {}
+    for (r1, c1), (r2, c2) in merged_topleft.items():
+        for rr in range(r1, r2 + 1):
+            for cc in range(c1, c2 + 1):
+                owner[(rr, cc)] = (r1, c1)
+    return owner
 
 
 def _read_cell_raw_text(cell, shared_strings):
@@ -1048,6 +1068,7 @@ def _add_cell_borders(sh_root, col_x, row_y, col_w, row_h, xf_borders, xf_fills,
 
     # Pre-scan: record fill color per (r, c) to drive internal-border suppression.
     fill_positions = {}
+    merge_owner = _build_merge_owner_map(sh_root)
     for row_el in sh_root.findall('.//x:row', ns):
         r = int(row_el.attrib.get('r', 1)) - 1
         for cell in row_el.findall('x:c', ns):
@@ -1089,6 +1110,7 @@ def _add_cell_borders(sh_root, col_x, row_y, col_w, row_h, xf_borders, xf_fills,
             cx = col_x[min(c, CX_LAST)] / cfg.scale
             cw = max(1.0, _chars_px(col_w[c], cfg) / cfg.scale)
             own_fill = fill_positions.get((r, c))
+            own_merge = merge_owner.get((r, c))
             for side, (color, width_px, dash, _sname) in border_info.items():
                 # Suppress internal vertical/horizontal dividers between same-fill cells.
                 if own_fill:
@@ -1099,6 +1121,16 @@ def _add_cell_borders(sh_root, col_x, row_y, col_w, row_h, xf_borders, xf_fills,
                     if side == 'top' and fill_positions.get((r - 1, c)) == own_fill:
                         continue
                     if side == 'bottom' and fill_positions.get((r + 1, c)) == own_fill:
+                        continue
+                # Suppress borders inside a merged-cell block.
+                if own_merge:
+                    if side == 'left' and merge_owner.get((r, c - 1)) == own_merge:
+                        continue
+                    if side == 'right' and merge_owner.get((r, c + 1)) == own_merge:
+                        continue
+                    if side == 'top' and merge_owner.get((r - 1, c)) == own_merge:
+                        continue
+                    if side == 'bottom' and merge_owner.get((r + 1, c)) == own_merge:
                         continue
                 dash_style = f'dashPattern={dash};' if dash else ''
                 style = (f'whiteSpace=wrap;html=1;fillColor={color};strokeColor={color};'
@@ -1476,6 +1508,18 @@ def _xfrm_transform(xfrm):
     return rot, fh, fv
 
 
+def _rotate_point(px, py, cx, cy, deg):
+    """Rotate point around center by ``deg`` degrees in screen coordinates."""
+    if not deg:
+        return px, py
+    from math import cos, radians, sin
+    t = radians(deg)
+    dx, dy = px - cx, py - cy
+    rx = dx * cos(t) - dy * sin(t)
+    ry = dx * sin(t) + dy * cos(t)
+    return cx + rx, cy + ry
+
+
 def _append_transform_style(parts, rot, fh, fv):
     """Append ``rotation``/``flipH``/``flipV`` fragments when non-zero."""
     if rot:
@@ -1833,16 +1877,63 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
     spr = cxn.find(f'{{{XDR}}}spPr')
     if spr is None:
         return
+    prst_el = spr.find(f'{{{A}}}prstGeom')
+    prst_name = prst_el.attrib.get('prst', '') if prst_el is not None else ''
     xfrm = spr.find(f'{{{A}}}xfrm')
-    _, fh, fv = _xfrm_transform(xfrm)
-    if not fh and not fv:
-        x1, y1, x2, y2 = ax, ay, ax + w, ay + h
-    elif fh and not fv:
-        x1, y1, x2, y2 = ax + w, ay, ax, ay + h
-    elif fv and not fh:
-        x1, y1, x2, y2 = ax, ay + h, ax + w, ay
+    rot, fh, fv = _xfrm_transform(xfrm)
+    edge_points = None
+    if prst_name.startswith('bentConnector'):
+        # OOXML bent connectors are orthogonal/elbow polylines.
+        # When rendered as free drawio edges (no source/target cells), passing
+        # only sourcePoint/targetPoint often collapses into a straight segment.
+        # Keep opposite-corner endpoints and provide explicit waypoint(s) so the
+        # elbow remains visible.
+        if not fh and not fv:
+            x1, y1, x2, y2 = ax, ay, ax + w, ay + h
+        elif fh and not fv:
+            x1, y1, x2, y2 = ax + w, ay, ax, ay + h
+        elif fv and not fh:
+            x1, y1, x2, y2 = ax, ay + h, ax + w, ay
+        else:
+            x1, y1, x2, y2 = ax + w, ay + h, ax, ay
+        m = re.search(r'(\d+)$', prst_name or '')
+        idx = int(m.group(1)) if m else 2
+        # bentConnector2/4 and 3/5 are mirrored variants.
+        # Swap bend corner selection so the elbow direction rotates 180°
+        # from the previous mapping (matches Excel orientation better).
+        first_corner = (x1, y2) if (idx % 2 == 0) else (x2, y1)
+        edge_points = [first_corner]
     else:
-        x1, y1, x2, y2 = ax + w, ay + h, ax, ay
+        # Non-elbow connectors: center-line endpoints along the major axis.
+        if w >= h:
+            y = ay + (h / 2.0)
+            x1, y1, x2, y2 = ax, y, ax + w, y
+            if fh:
+                x1, y1, x2, y2 = x2, y2, x1, y1
+        else:
+            x = ax + (w / 2.0)
+            x1, y1, x2, y2 = x, ay, x, ay + h
+            if fv:
+                x1, y1, x2, y2 = x2, y2, x1, y1
+    eff_rot = rot
+    # Elbow connectors are usually quarter-turn oriented; snap near-right-angle
+    # rotations to avoid mirrored routing caused by tiny float/import noise.
+    if prst_name.startswith('bentConnector') and rot:
+        q = round(rot / 90.0)
+        snapped = q * 90.0
+        if abs(rot - snapped) <= 1.0:
+            eff_rot = snapped
+    if eff_rot:
+        cx, cy = ax + (w / 2.0), ay + (h / 2.0)
+        # OOXML a:xfrm rot uses opposite sign vs drawio screen coordinates here.
+        # Use negative rotation to avoid mirrored connector direction.
+        x1, y1 = _rotate_point(x1, y1, cx, cy, -eff_rot)
+        x2, y2 = _rotate_point(x2, y2, cx, cy, -eff_rot)
+        if edge_points:
+            edge_points = [
+                _rotate_point(px, py, cx, cy, -eff_rot)
+                for px, py in edge_points
+            ]
 
     # Line appearance
     ln = spr.find(f'{{{A}}}ln')
@@ -1860,8 +1951,6 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
     ln_parts, has_head, has_tail = _ln_style_parts(ln)
 
     # Preset connector geometry -> drawio edge routing hint.
-    prst_el = spr.find(f'{{{A}}}prstGeom')
-    prst_name = prst_el.attrib.get('prst', '') if prst_el is not None else ''
     parts = ['html=1', 'rounded=0', 'jumpStyle=none']
     if prst_name.startswith('bentConnector'):
         parts.append('edgeStyle=orthogonalEdgeStyle')
@@ -1878,7 +1967,7 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
         parts.append('endArrow=none')
     parts.extend(ln_parts)
     style = ';'.join(parts) + ';'
-    bld.add_edge(x1, y1, x2, y2, style)
+    bld.add_edge(x1, y1, x2, y2, style, points=edge_points)
 
 
 def _emit_cxnsp(cxn, pax, pay, sx, sy, bld):
