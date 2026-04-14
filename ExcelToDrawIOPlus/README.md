@@ -59,6 +59,22 @@ cd ExcelToDrawIOPlus
 python excel_to_drawio_plus.py --help
 ```
 
+
+### Windows バッチ (uv 実行)
+
+各フォルダに `run_uv.bat` を用意しています。
+
+```bat
+cd ExcelToDrawIOPlus
+run_uv.bat input.xlsx
+```
+
+内部的には次のコマンドを実行します。
+
+```bat
+uv run excel_to_drawio_plus.py %*
+```
+
 ## 使い方
 
 ### コマンドライン (CLI)
