@@ -1821,33 +1821,19 @@ def _emit_sp(sp, pax, pay, sx, sy, bld):
     _render_sp(sp, ax, ay, w, h, bld)
 
 
-def _emit_cxnsp(cxn, pax, pay, sx, sy, bld):
-    """Emit a connector shape as a real drawio edge.
+def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
+    """Emit a connector as a drawio edge for a pre-resolved bbox rect.
 
-    OOXML ``xdr:cxnSp`` stores a bounding box in ``a:xfrm`` and uses
-    ``flipH``/``flipV`` to select which diagonal of that bbox the line runs
-    along. Rendering this as a vertex rectangle collapses thin lines to a
-    sliver (or invisible strip) — the connector must become a drawio edge
-    with explicit source/target points so the line body actually draws.
+    ``ax/ay/w/h`` is the connector's bounding box in drawio pixels. The line
+    runs along one of the bbox diagonals, selected by ``flipH``/``flipV`` on
+    the underlying ``a:xfrm``. Used by both the anchor-level path (which
+    derives the rect from ``_anchor_rect``, so it shares pixel math with
+    shapes and cell labels) and the group-level path in ``_emit_cxnsp``.
     """
     spr = cxn.find(f'{{{XDR}}}spPr')
     if spr is None:
         return
     xfrm = spr.find(f'{{{A}}}xfrm')
-    if xfrm is None:
-        return
-    off = xfrm.find(f'{{{A}}}off')
-    ext = xfrm.find(f'{{{A}}}ext')
-    if off is None or ext is None:
-        return
-    ax = pax + int(off.attrib.get('x', 0)) * sx
-    ay = pay + int(off.attrib.get('y', 0)) * sy
-    w = int(ext.attrib.get('cx', 0)) * sx
-    h = int(ext.attrib.get('cy', 0)) * sy
-
-    # Select which bbox diagonal the line runs along. Without flip the line
-    # runs top-left → bottom-right; flipH mirrors horizontally, flipV mirrors
-    # vertically, both flips together rotate 180°.
     _, fh, fv = _xfrm_transform(xfrm)
     if not fh and not fv:
         x1, y1, x2, y2 = ax, ay, ax + w, ay + h
@@ -1893,6 +1879,31 @@ def _emit_cxnsp(cxn, pax, pay, sx, sy, bld):
     parts.extend(ln_parts)
     style = ';'.join(parts) + ';'
     bld.add_edge(x1, y1, x2, y2, style)
+
+
+def _emit_cxnsp(cxn, pax, pay, sx, sy, bld):
+    """Emit a connector shape whose bbox is stored in its own ``a:xfrm``.
+
+    Used by the grpSp walker where the connector's xfrm is in group-local
+    coordinates. Anchor-level connectors should use
+    ``_render_cxnsp_at_rect`` directly with the resolved anchor rect so they
+    share pixel math with shapes and cell labels.
+    """
+    spr = cxn.find(f'{{{XDR}}}spPr')
+    if spr is None:
+        return
+    xfrm = spr.find(f'{{{A}}}xfrm')
+    if xfrm is None:
+        return
+    off = xfrm.find(f'{{{A}}}off')
+    ext = xfrm.find(f'{{{A}}}ext')
+    if off is None or ext is None:
+        return
+    ax = pax + int(off.attrib.get('x', 0)) * sx
+    ay = pay + int(off.attrib.get('y', 0)) * sy
+    w = int(ext.attrib.get('cx', 0)) * sx
+    h = int(ext.attrib.get('cy', 0)) * sy
+    _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld)
 
 
 def _emit_pic(pic, images, pax, pay, sx, sy, bld):
@@ -2070,7 +2081,12 @@ def _add_drawing_shapes(z, drawing_path, col_x, row_y, bld, cfg):
                     elif gct == 'pic':
                         _emit_pic(gc, images, cox, coy, csx, csy, bld)
             elif ct == 'cxnSp':
-                _emit_cxnsp(child, 0, 0, sc, sc, bld)
+                # Anchor-level connector: use the _anchor_rect bbox so the
+                # line endpoints align with the same pixel math the cell
+                # labels and shapes use. Bypassing this and reading raw EMU
+                # introduces a small but visible rightward/downward drift
+                # that accumulates across columns.
+                _render_cxnsp_at_rect(child, anc_x, anc_y, anc_w, anc_h, bld)
             elif ct == 'pic':
                 # Top-level picture in anchor: resolve the primary/SVG alternate
                 # rid and render at the anchor rect.
