@@ -63,7 +63,6 @@ python excel_to_drawio_plus.py --help
 ### Windows バッチ (uv 実行)
 
 各フォルダに `run_uv.bat` (CLI) と `run_gui_uv.bat` (GUI) を用意しています。
-各フォルダに `run_uv.bat` を用意しています。
 
 ```bat
 cd ExcelToDrawIOPlus
