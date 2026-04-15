@@ -1162,16 +1162,19 @@ def _add_cell_borders(sh_root, col_x, row_y, col_w, row_h, xf_borders, xf_fills,
                     if side == 'bottom' and merge_owner.get((r + 1, c)) == own_merge:
                         continue
                 dash_style = f'dashPattern={dash};' if dash else ''
-                style = (f'whiteSpace=wrap;html=1;fillColor={color};strokeColor={color};'
+                style = (f'shape=line;html=1;strokeColor={color};'
                          f'strokeWidth={width_px};{dash_style}')
+                # Borders are drawn purely as lines around the cell perimeter.
+                pass_w = max(width_px, 1)
                 if side == 'top':
-                    bld.add('', cx, cy, cw, max(width_px, 1), style)
+                    bld.add('', cx, cy, cw, 1, style)
                 elif side == 'bottom':
-                    bld.add('', cx, cy + ch - max(width_px, 1), cw, max(width_px, 1), style)
+                    # To align outer edge roughly with Excel logic, draw on bottom boundary
+                    bld.add('', cx, cy + ch - 1, cw, 1, style)
                 elif side == 'left':
-                    bld.add('', cx, cy, max(width_px, 1), ch, style)
+                    bld.add('', cx, cy, 1, ch, style + 'direction=south;')
                 elif side == 'right':
-                    bld.add('', cx + cw - max(width_px, 1), cy, max(width_px, 1), ch, style)
+                    bld.add('', cx + cw - 1, cy, 1, ch, style + 'direction=south;')
                 count += 1
     return count
 
