@@ -1905,9 +1905,7 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
         # When present, use it to place the elbow instead of always using the
         # far corner. This is important for cases where Excel uses a short
         # first leg (as seen in sample screenshots).
-        # Excel often keeps the first elbow leg relatively short. Use a small
-        # default when adj1 is omitted, then override from OOXML if present.
-        adj = 0.125
+        adj = None
         avlst = prst_el.find(f'{{{A}}}avLst') if prst_el is not None else None
         if avlst is not None:
             for gd in avlst.findall(f'{{{A}}}gd'):
@@ -1921,18 +1919,24 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
                 try:
                     adj = max(0.0, min(1.0, int(raw) / 100000.0))
                 except Exception:
-                    adj = 0.125
+                    adj = None
                 break
         # Force a single-corner elbow (no middle crank points).
         # idx group controls whether the first leg is horizontal or vertical.
         if idx in (2, 4):
-            yb = y1 + (y2 - y1) * adj
-            edge_points = [(x1, yb)]  # vertical -> horizontal
+            if adj is not None:
+                yb = y1 + (y2 - y1) * adj
+                edge_points = [(x1, yb)]  # vertical -> horizontal
+            else:
+                edge_points = [(x1, y2)]  # vertical -> horizontal
         elif idx in (3, 5):
-            xb = x1 + (x2 - x1) * adj
-            edge_points = [(xb, y1)]  # horizontal -> vertical
+            if adj is not None:
+                xb = x1 + (x2 - x1) * adj
+                edge_points = [(xb, y1)]  # horizontal -> vertical
+            else:
+                edge_points = [(x2, y1)]  # horizontal -> vertical
         else:
-            edge_points = [(x1, y1 + (y2 - y1) * adj)]
+            edge_points = [(x1, y2)] if adj is None else [(x1, y1 + (y2 - y1) * adj)]
     else:
         # Non-elbow connectors: center-line endpoints along the major axis.
         if w >= h:
