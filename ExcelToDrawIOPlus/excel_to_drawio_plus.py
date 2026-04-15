@@ -1978,8 +1978,10 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
         # than orthogonalEdgeStyle (which may reroute unexpectedly).
         parts.append('edgeStyle=segmentEdgeStyle')
     elif prst_name.startswith('curvedConnector'):
-        parts.append('edgeStyle=orthogonalEdgeStyle')
+        parts.append('edgeStyle=none')
         parts.append('curved=1')
+    elif prst_name.startswith('straightConnector'):
+        parts.append('edgeStyle=none')
     parts.append(f'strokeColor={color}')
     if lw_px > 1:
         parts.append(f'strokeWidth={lw_px}')
