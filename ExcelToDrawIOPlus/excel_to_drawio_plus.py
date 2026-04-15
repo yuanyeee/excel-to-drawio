@@ -585,22 +585,36 @@ class DrawioBuilder:
     def __init__(self, diagram_name='Sheet1'):
         self._cells = []
         self._next = 2
-        self._seen = set()
+        self._seen = {}  # key -> cid
         self._max_x = 0
         self._max_y = 0
         self._diagram_name = diagram_name
+        self._ooxml_map = {}
 
-    def add(self, text, x, y, w, h, style, force=False):
+    def get_solid_cid(self, ooxml_id):
+        if not ooxml_id:
+            cid = self._next
+            self._next += 1
+            return cid
+        if ooxml_id not in self._ooxml_map:
+            self._ooxml_map[ooxml_id] = self._next
+            self._next += 1
+        return self._ooxml_map[ooxml_id]
+
+    def add(self, text, x, y, w, h, style, force=False, sp_id=None):
         x, y = round(x), round(y)
         w, h = round(max(w, 1)), round(max(h, 1))
-        key = (x, y, w, h, style[:60])
-        if key in self._seen and not force:
-            return
-        self._seen.add(key)
+        # Ensure distinct instances are kept distinct if they have an ID
+        key = (x, y, w, h, style[:60], sp_id)
+        if key in self._seen and not force and sp_id is None:
+            # If skipping, an ooxml_id wasn't provided, so we don't need to remap it
+            return self._seen[key]
+        
+        cid = self.get_solid_cid(sp_id)
+        self._seen[key] = cid
+
         self._max_x = max(self._max_x, x + w)
         self._max_y = max(self._max_y, y + h)
-        cid = self._next
-        self._next += 1
         esc = html.escape(str(text))
         self._cells.append(
             f'    <mxCell id="{cid}" value="{esc}" style="{style}" vertex="1" parent="1">'
@@ -632,20 +646,19 @@ class DrawioBuilder:
             f'</mxCell>'
         )
 
-    def add_edge(self, x1, y1, x2, y2, style, points=None):
+    def add_edge(self, x1, y1, x2, y2, style, points=None, src_id=None, tgt_id=None):
         """Add a drawio edge (line) between two explicit points.
 
         Used for connector shapes (``xdr:cxnSp``) so they render as real lines
-        instead of collapsed vertex rectangles. The edge has no source/target
-        cell — drawio uses the explicit ``sourcePoint``/``targetPoint`` mxPoints
-        in the geometry.
+        instead of collapsed vertex rectangles. If src_id/tgt_id are provided,
+        they bind the edge to existing shapes allowing orthogonal routing heuristics.
         """
         x1, y1 = round(x1), round(y1)
         x2, y2 = round(x2), round(y2)
         self._max_x = max(self._max_x, x1, x2)
         self._max_y = max(self._max_y, y1, y2)
-        cid = self._next
-        self._next += 1
+        cid = self.get_solid_cid(None)
+
         points_xml = ''
         if points:
             pts = []
@@ -654,8 +667,10 @@ class DrawioBuilder:
                 self._max_x = max(self._max_x, round(px))
                 self._max_y = max(self._max_y, round(py))
             points_xml = f'<Array as="points">{"".join(pts)}</Array>'
+        src_attr = f' source="{self.get_solid_cid(src_id)}"' if src_id else ''
+        tgt_attr = f' target="{self.get_solid_cid(tgt_id)}"' if tgt_id else ''
         self._cells.append(
-            f'    <mxCell id="{cid}" value="" style="{style}" edge="1" parent="1">'
+            f'    <mxCell id="{cid}" value="" style="{style}" edge="1" parent="1"{src_attr}{tgt_attr}>'
             f'<mxGeometry relative="1" as="geometry">'
             f'<mxPoint x="{x1}" y="{y1}" as="sourcePoint"/>'
             f'<mxPoint x="{x2}" y="{y2}" as="targetPoint"/>'
@@ -1828,6 +1843,9 @@ def _render_sp(sp, ax, ay, w, h, bld):
     fsz = _sp_fontsize(txb)
     fe, _ = _sp_font_style(txb)
 
+    nv = sp.find(f'{{{XDR}}}nvSpPr/{{{XDR}}}cNvPr')
+    sp_id = nv.attrib.get('id') if nv is not None else None
+
     # Optional custGeom → drawio stencil
     shape_override = None
     custgeom = spr.find(f'{{{A}}}custGeom')
@@ -1847,7 +1865,7 @@ def _render_sp(sp, ax, ay, w, h, bld):
 
     style = _make_shape_style(prst, fill, lc, lw, fsz, fe,
                               shape_override=shape_override, extra_parts=extra)
-    bld.add(text_value, ax, ay, w, h, style, force=bool(text_value))
+    bld.add(text_value, ax, ay, w, h, style, force=bool(text_value), sp_id=sp_id)
 
 
 def _emit_sp(sp, pax, pay, sx, sy, bld):
@@ -1889,11 +1907,20 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, from_corner=None, to_corner=No
     prst_name = prst_el.attrib.get('prst', '') if prst_el is not None else ''
     cnv = cxn.find(f'{{{XDR}}}nvCxnSpPr/{{{XDR}}}cNvCxnSpPr')
     has_bound_end = False
+    src_id = None
+    tgt_id = None
+    src_idx = None
+    tgt_idx = None
     if cnv is not None:
-        has_bound_end = (
-            cnv.find(f'{{{A}}}stCxn') is not None or
-            cnv.find(f'{{{A}}}endCxn') is not None
-        )
+        st = cnv.find(f'{{{A}}}stCxn')
+        ed = cnv.find(f'{{{A}}}endCxn')
+        has_bound_end = (st is not None or ed is not None)
+        if st is not None:
+            src_id = st.attrib.get('id')
+            src_idx = st.attrib.get('idx')
+        if ed is not None:
+            tgt_id = ed.attrib.get('id')
+            tgt_idx = ed.attrib.get('idx')
     xfrm = spr.find(f'{{{A}}}xfrm')
     rot, fh, fv = _xfrm_transform(xfrm)
     edge_points = None
@@ -2058,6 +2085,18 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, from_corner=None, to_corner=No
         parts.append('curved=1')
     elif prst_name.startswith('straightConnector'):
         parts.append('edgeStyle=none')
+        
+    if src_idx:
+        if src_idx == '0': parts.append('exitX=0.5;exitY=0;exitDx=0;exitDy=0')
+        elif src_idx == '1': parts.append('exitX=0;exitY=0.5;exitDx=0;exitDy=0')
+        elif src_idx == '2': parts.append('exitX=0.5;exitY=1;exitDx=0;exitDy=0')
+        elif src_idx == '3': parts.append('exitX=1;exitY=0.5;exitDx=0;exitDy=0')
+    if tgt_idx:
+        if tgt_idx == '0': parts.append('entryX=0.5;entryY=0;entryDx=0;entryDy=0')
+        elif tgt_idx == '1': parts.append('entryX=0;entryY=0.5;entryDx=0;entryDy=0')
+        elif tgt_idx == '2': parts.append('entryX=0.5;entryY=1;entryDx=0;entryDy=0')
+        elif tgt_idx == '3': parts.append('entryX=1;entryY=0.5;entryDx=0;entryDy=0')
+
     parts.append(f'strokeColor={color}')
     if lw_px > 1:
         parts.append(f'strokeWidth={lw_px}')
@@ -2066,8 +2105,9 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, from_corner=None, to_corner=No
     # OOXML tailEnd (the "pointing end") maps to DrawIO endArrow (targetPoint).
     # Without explicit corners the legacy flip heuristic may have reversed the
     # path, so the swapped mapping (tail→start, head→end) is kept for that path.
-    if from_corner is not None and to_corner is not None:
-        # Anchor-level: tailEnd = arrow tip = to side = endArrow
+    if src_id or tgt_id or (from_corner is not None and to_corner is not None):
+        # When anchored or bound conceptually, direction is fixed.
+        # Anchor-level or bound edges: tailEnd = arrow tip = to side = endArrow
         if not has_tail:
             parts.append('endArrow=none')
         if not has_head:
@@ -2089,7 +2129,7 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, from_corner=None, to_corner=No
             parts.append('endArrow=none')
         parts.extend(ln_parts)
     style = ';'.join(parts) + ';'
-    bld.add_edge(x1, y1, x2, y2, style, points=edge_points)
+    bld.add_edge(x1, y1, x2, y2, style, points=edge_points, src_id=src_id, tgt_id=tgt_id)
 
 
 def _emit_cxnsp(cxn, pax, pay, sx, sy, bld):
