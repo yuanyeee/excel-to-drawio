@@ -3,13 +3,9 @@ Excel to Draw.io Converter - General Purpose Edition
 
 Excel (.xlsx / .xlsm) to Draw.io (.drawio) converter.
 Features:
-  - Image (pic) embedding via base64 data URI (PNG/JPG/GIF/BMP/SVG/WebP);
-    SVG svgBlip extension and EMF/WMF raster fallback supported
-  - Auto-detected sheet dimensions (no hardcoded grid limits)
-  - OOXML-spec column width formula honouring defaultColWidth
-  - Full border styles (dashed, dotted, double, hair, dashDotDot, …)
-  - Same-fill internal border suppression
-  - Cell text auto-fit and right-extension into adjacent empty cells
+  - Image (pic) embedding via base64 data URI
+  - Auto-detected sheet dimensions (no hardcoded limits)
+  - Full border styles (dashed, dotted, double, hair)
   - Hyperlink support on cells
   - Hidden row/column skipping option
   - Text rotation, underline, strikethrough support
@@ -589,22 +585,41 @@ class DrawioBuilder:
     def __init__(self, diagram_name='Sheet1'):
         self._cells = []
         self._next = 2
-        self._seen = set()
+        self._seen = {}  # key -> cid
+        self._emitted_cids = set()
         self._max_x = 0
         self._max_y = 0
         self._diagram_name = diagram_name
+        self._ooxml_map = {}
 
-    def add(self, text, x, y, w, h, style, force=False):
+    def get_solid_cid(self, ooxml_id):
+        if not ooxml_id:
+            cid = self._next
+            self._next += 1
+            return cid
+        if ooxml_id not in self._ooxml_map:
+            self._ooxml_map[ooxml_id] = self._next
+            self._next += 1
+        return self._ooxml_map[ooxml_id]
+
+    def add(self, text, x, y, w, h, style, force=False, sp_id=None):
         x, y = round(x), round(y)
         w, h = round(max(w, 1)), round(max(h, 1))
-        key = (x, y, w, h, style[:60])
-        if key in self._seen and not force:
-            return
-        self._seen.add(key)
+        # Ensure distinct instances are kept distinct if they have an ID
+        key = (x, y, w, h, style[:60], sp_id)
+        if key in self._seen and not force and sp_id is None:
+            # If skipping, an ooxml_id wasn't provided, so we don't need to remap it
+            return self._seen[key]
+        
+        cid = self.get_solid_cid(sp_id)
+        if cid in self._emitted_cids:
+            return cid
+
+        self._seen[key] = cid
+        self._emitted_cids.add(cid)
+
         self._max_x = max(self._max_x, x + w)
         self._max_y = max(self._max_y, y + h)
-        cid = self._next
-        self._next += 1
         esc = html.escape(str(text))
         self._cells.append(
             f'    <mxCell id="{cid}" value="{esc}" style="{style}" vertex="1" parent="1">'
@@ -612,7 +627,7 @@ class DrawioBuilder:
             f'</mxCell>'
         )
 
-    def add_image(self, x, y, w, h, data_uri, extra_style=None):
+    def add_image(self, x, y, w, h, data_uri, extra_style=None, sp_id=None):
         """Add an embedded image as a DrawIO image shape.
 
         ``extra_style`` may be a string of already-joined style fragments (no
@@ -621,10 +636,14 @@ class DrawioBuilder:
         """
         x, y = round(x), round(y)
         w, h = round(max(w, 1)), round(max(h, 1))
+
+        cid = self.get_solid_cid(sp_id)
+        if cid in self._emitted_cids:
+            return cid
+        self._emitted_cids.add(cid)
+
         self._max_x = max(self._max_x, x + w)
         self._max_y = max(self._max_y, y + h)
-        cid = self._next
-        self._next += 1
         style = (f'shape=image;verticalLabelPosition=bottom;labelBackgroundColor=default;'
                  f'verticalAlign=top;aspect=fixed;imageAspect=0;'
                  f'image={data_uri};')
@@ -636,25 +655,40 @@ class DrawioBuilder:
             f'</mxCell>'
         )
 
-    def add_edge(self, x1, y1, x2, y2, style):
+    def add_edge(self, x1, y1, x2, y2, style, points=None, src_id=None, tgt_id=None, edge_id=None):
         """Add a drawio edge (line) between two explicit points.
 
         Used for connector shapes (``xdr:cxnSp``) so they render as real lines
-        instead of collapsed vertex rectangles. The edge has no source/target
-        cell — drawio uses the explicit ``sourcePoint``/``targetPoint`` mxPoints
-        in the geometry.
+        instead of collapsed vertex rectangles. If src_id/tgt_id are provided,
+        they bind the edge to existing shapes allowing orthogonal routing heuristics.
         """
         x1, y1 = round(x1), round(y1)
         x2, y2 = round(x2), round(y2)
+
+        cid = self.get_solid_cid(edge_id)
+        if cid in self._emitted_cids:
+            return cid
+        self._emitted_cids.add(cid)
+
         self._max_x = max(self._max_x, x1, x2)
         self._max_y = max(self._max_y, y1, y2)
-        cid = self._next
-        self._next += 1
+
+        points_xml = ''
+        if points:
+            pts = []
+            for px, py in points:
+                pts.append(f'<mxPoint x="{round(px)}" y="{round(py)}"/>')
+                self._max_x = max(self._max_x, round(px))
+                self._max_y = max(self._max_y, round(py))
+            points_xml = f'<Array as="points">{"".join(pts)}</Array>'
+        src_attr = f' source="{self.get_solid_cid(src_id)}"' if src_id else ''
+        tgt_attr = f' target="{self.get_solid_cid(tgt_id)}"' if tgt_id else ''
         self._cells.append(
-            f'    <mxCell id="{cid}" value="" style="{style}" edge="1" parent="1">'
+            f'    <mxCell id="{cid}" value="" style="{style}" edge="1" parent="1"{src_attr}{tgt_attr}>'
             f'<mxGeometry relative="1" as="geometry">'
             f'<mxPoint x="{x1}" y="{y1}" as="sourcePoint"/>'
             f'<mxPoint x="{x2}" y="{y2}" as="targetPoint"/>'
+            f'{points_xml}'
             f'</mxGeometry>'
             f'</mxCell>'
         )
@@ -837,6 +871,17 @@ def _build_merged_cell_maps(sh_root):
                 if rr != r1 or cc != c1:
                     merged_children.add((rr, cc))
     return merged_topleft, merged_children
+
+
+def _build_merge_owner_map(sh_root):
+    """Map each merged-cell coordinate to the merge block top-left cell."""
+    merged_topleft, _ = _build_merged_cell_maps(sh_root)
+    owner = {}
+    for (r1, c1), (r2, c2) in merged_topleft.items():
+        for rr in range(r1, r2 + 1):
+            for cc in range(c1, c2 + 1):
+                owner[(rr, cc)] = (r1, c1)
+    return owner
 
 
 def _read_cell_raw_text(cell, shared_strings):
@@ -1052,6 +1097,7 @@ def _add_cell_borders(sh_root, col_x, row_y, col_w, row_h, xf_borders, xf_fills,
 
     # Pre-scan: record fill color per (r, c) to drive internal-border suppression.
     fill_positions = {}
+    merge_owner = _build_merge_owner_map(sh_root)
     for row_el in sh_root.findall('.//x:row', ns):
         r = int(row_el.attrib.get('r', 1)) - 1
         for cell in row_el.findall('x:c', ns):
@@ -1093,6 +1139,7 @@ def _add_cell_borders(sh_root, col_x, row_y, col_w, row_h, xf_borders, xf_fills,
             cx = col_x[min(c, CX_LAST)] / cfg.scale
             cw = max(1.0, _chars_px(col_w[c], cfg) / cfg.scale)
             own_fill = fill_positions.get((r, c))
+            own_merge = merge_owner.get((r, c))
             for side, (color, width_px, dash, _sname) in border_info.items():
                 # Suppress internal vertical/horizontal dividers between same-fill cells.
                 if own_fill:
@@ -1104,17 +1151,30 @@ def _add_cell_borders(sh_root, col_x, row_y, col_w, row_h, xf_borders, xf_fills,
                         continue
                     if side == 'bottom' and fill_positions.get((r + 1, c)) == own_fill:
                         continue
+                # Suppress borders inside a merged-cell block.
+                if own_merge:
+                    if side == 'left' and merge_owner.get((r, c - 1)) == own_merge:
+                        continue
+                    if side == 'right' and merge_owner.get((r, c + 1)) == own_merge:
+                        continue
+                    if side == 'top' and merge_owner.get((r - 1, c)) == own_merge:
+                        continue
+                    if side == 'bottom' and merge_owner.get((r + 1, c)) == own_merge:
+                        continue
                 dash_style = f'dashPattern={dash};' if dash else ''
-                style = (f'whiteSpace=wrap;html=1;fillColor={color};strokeColor={color};'
+                style = (f'shape=line;html=1;strokeColor={color};'
                          f'strokeWidth={width_px};{dash_style}')
+                # Borders are drawn purely as lines around the cell perimeter.
+                pass_w = max(width_px, 1)
                 if side == 'top':
-                    bld.add('', cx, cy, cw, max(width_px, 1), style)
+                    bld.add('', cx, cy, cw, 1, style)
                 elif side == 'bottom':
-                    bld.add('', cx, cy + ch - max(width_px, 1), cw, max(width_px, 1), style)
+                    # To align outer edge roughly with Excel logic, draw on bottom boundary
+                    bld.add('', cx, cy + ch - 1, cw, 1, style)
                 elif side == 'left':
-                    bld.add('', cx, cy, max(width_px, 1), ch, style)
+                    bld.add('', cx, cy, 1, ch, style + 'direction=south;')
                 elif side == 'right':
-                    bld.add('', cx + cw - max(width_px, 1), cy, max(width_px, 1), ch, style)
+                    bld.add('', cx + cw - 1, cy, 1, ch, style + 'direction=south;')
                 count += 1
     return count
 
@@ -1480,6 +1540,18 @@ def _xfrm_transform(xfrm):
     return rot, fh, fv
 
 
+def _rotate_point(px, py, cx, cy, deg):
+    """Rotate point around center by ``deg`` degrees in screen coordinates."""
+    if not deg:
+        return px, py
+    from math import cos, radians, sin
+    t = radians(deg)
+    dx, dy = px - cx, py - cy
+    rx = dx * cos(t) - dy * sin(t)
+    ry = dx * sin(t) + dy * cos(t)
+    return cx + rx, cy + ry
+
+
 def _append_transform_style(parts, rot, fh, fv):
     """Append ``rotation``/``flipH``/``flipV`` fragments when non-zero."""
     if rot:
@@ -1499,12 +1571,15 @@ def _ln_style_parts(ln):
     tail = ln.find(f'{{{A}}}tailEnd')
     has_head = head is not None
     has_tail = tail is not None
+    # OOXML headEnd/tailEnd semantics appear reversed relative to drawio's
+    # startArrow/endArrow in our coordinate path emission. Map head->end and
+    # tail->start so arrowheads land on the expected visual side.
     if has_head:
         htype = head.attrib.get('type', 'none')
-        parts.append(f'startArrow={ARROW_MAP.get(htype, "classic")}')
+        parts.append(f'endArrow={ARROW_MAP.get(htype, "classic")}')
     if has_tail:
         ttype = tail.attrib.get('type', 'none')
-        parts.append(f'endArrow={ARROW_MAP.get(ttype, "classic")}')
+        parts.append(f'startArrow={ARROW_MAP.get(ttype, "classic")}')
     prst = ln.find(f'{{{A}}}prstDash')
     if prst is not None:
         pval = prst.attrib.get('val', 'solid')
@@ -1785,6 +1860,9 @@ def _render_sp(sp, ax, ay, w, h, bld):
     fsz = _sp_fontsize(txb)
     fe, _ = _sp_font_style(txb)
 
+    nv = sp.find(f'{{{XDR}}}nvSpPr/{{{XDR}}}cNvPr')
+    sp_id = nv.attrib.get('id') if nv is not None else None
+
     # Optional custGeom → drawio stencil
     shape_override = None
     custgeom = spr.find(f'{{{A}}}custGeom')
@@ -1804,7 +1882,7 @@ def _render_sp(sp, ax, ay, w, h, bld):
 
     style = _make_shape_style(prst, fill, lc, lw, fsz, fe,
                               shape_override=shape_override, extra_parts=extra)
-    bld.add(text_value, ax, ay, w, h, style, force=bool(text_value))
+    bld.add(text_value, ax, ay, w, h, style, force=bool(text_value), sp_id=sp_id)
 
 
 def _emit_sp(sp, pax, pay, sx, sy, bld):
@@ -1825,28 +1903,178 @@ def _emit_sp(sp, pax, pay, sx, sy, bld):
     _render_sp(sp, ax, ay, w, h, bld)
 
 
-def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
+def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, from_corner=None, to_corner=None):
     """Emit a connector as a drawio edge for a pre-resolved bbox rect.
 
-    ``ax/ay/w/h`` is the connector's bounding box in drawio pixels. The line
-    runs along one of the bbox diagonals, selected by ``flipH``/``flipV`` on
-    the underlying ``a:xfrm``. Used by both the anchor-level path (which
-    derives the rect from ``_anchor_rect``, so it shares pixel math with
-    shapes and cell labels) and the group-level path in ``_emit_cxnsp``.
+    ``ax/ay/w/h`` is the connector's bounding box in drawio pixels.
+    ``from_corner`` and ``to_corner`` are optional (x, y) absolute pixel
+    coordinates for the true start/end of the connector (derived from the
+    ``xdr:from`` / ``xdr:to`` anchor elements).  When provided they replace
+    the flip-based endpoint heuristic so that anchor-level connectors always
+    have exactly the right terminal positions.  The elbow waypoint is still
+    derived from the anchor bbox corners.
+    Used by both the anchor-level path (which derives the rect from
+    ``_anchor_rect``, so it shares pixel math with shapes and cell labels)
+    and the group-level path in ``_emit_cxnsp``.
     """
     spr = cxn.find(f'{{{XDR}}}spPr')
     if spr is None:
         return
+    prst_el = spr.find(f'{{{A}}}prstGeom')
+    prst_name = prst_el.attrib.get('prst', '') if prst_el is not None else ''
+    nv_sp = cxn.find(f'{{{XDR}}}nvCxnSpPr/{{{XDR}}}cNvPr')
+    cxn_id = nv_sp.attrib.get('id') if nv_sp is not None else None
+
+    cnv = cxn.find(f'{{{XDR}}}nvCxnSpPr/{{{XDR}}}cNvCxnSpPr')
+    has_bound_end = False
+    src_id = None
+    tgt_id = None
+    src_idx = None
+    tgt_idx = None
+    if cnv is not None:
+        st = cnv.find(f'{{{A}}}stCxn')
+        ed = cnv.find(f'{{{A}}}endCxn')
+        has_bound_end = (st is not None or ed is not None)
+        if st is not None:
+            src_id = st.attrib.get('id')
+            src_idx = st.attrib.get('idx')
+        if ed is not None:
+            tgt_id = ed.attrib.get('id')
+            tgt_idx = ed.attrib.get('idx')
     xfrm = spr.find(f'{{{A}}}xfrm')
-    _, fh, fv = _xfrm_transform(xfrm)
-    if not fh and not fv:
-        x1, y1, x2, y2 = ax, ay, ax + w, ay + h
-    elif fh and not fv:
-        x1, y1, x2, y2 = ax + w, ay, ax, ay + h
-    elif fv and not fh:
-        x1, y1, x2, y2 = ax, ay + h, ax + w, ay
+    rot, fh, fv = _xfrm_transform(xfrm)
+    edge_points = None
+
+    # When the caller supplies exact from/to corners (anchor-level connectors)
+    # we use them directly and skip all flip/rot heuristics.  The anchor bbox
+    # already encodes the on-sheet position; applying xfrm rot/flip on top of
+    # it re-rotates coordinates that have already been placed correctly and
+    # produces wrong elbow positions or negative coordinates.
+    if from_corner is not None and to_corner is not None:
+        x1, y1 = from_corner
+        x2, y2 = to_corner
+        if prst_name.startswith('bentConnector'):
+            m = re.search(r'(\d+)$', prst_name or '')
+            idx = int(m.group(1)) if m else 2
+            adj = None
+            avlst = prst_el.find(f'{{{A}}}avLst') if prst_el is not None else None
+            if avlst is not None:
+                for gd in avlst.findall(f'{{{A}}}gd'):
+                    if gd.attrib.get('name') != 'adj1':
+                        continue
+                    raw = gd.attrib.get('fmla', '')
+                    if raw.startswith('val '):
+                        raw = raw.split()[-1]
+                    if not raw:
+                        raw = gd.attrib.get('val', '')
+                    try:
+                        adj = max(0.0, min(1.0, int(raw) / 100000.0))
+                    except Exception:
+                        adj = None
+                    break
+            if not has_bound_end or adj is not None:
+                # Determine elbow from prst preset type.
+                # For bentConnector3/5 (idx 3 or 5): first leg is horizontal
+                # For bentConnector2/4 (idx 2 or 4): first leg is vertical
+                # Excel ignores xfrm bbox aspect ratio for anchor-based routing
+                # and strictly follows the preset type.
+                if idx in (3, 5):
+                    # Horizontal first -> elbow at (x2, y1)
+                    if adj is not None:
+                        xb = x1 + (x2 - x1) * adj
+                        edge_points = [(xb, y1)]
+                    else:
+                        edge_points = [(x2, y1)]
+                else:
+                    # Vertical first -> elbow at (x1, y2)
+                    if adj is not None:
+                        yb = y1 + (y2 - y1) * adj
+                        edge_points = [(x1, yb)]
+                    else:
+                        edge_points = [(x1, y2)]
     else:
-        x1, y1, x2, y2 = ax + w, ay + h, ax, ay
+        if prst_name.startswith('bentConnector'):
+            # OOXML bent connectors are orthogonal/elbow polylines.
+            # Keep opposite-corner endpoints and provide explicit waypoint(s).
+            if not fh and not fv:
+                x1, y1, x2, y2 = ax, ay, ax + w, ay + h
+            elif fh and not fv:
+                x1, y1, x2, y2 = ax + w, ay, ax, ay + h
+            elif fv and not fh:
+                x1, y1, x2, y2 = ax, ay + h, ax + w, ay
+            else:
+                x1, y1, x2, y2 = ax + w, ay + h, ax, ay
+            m = re.search(r'(\d+)$', prst_name or '')
+            idx = int(m.group(1)) if m else 2
+            adj = None
+            avlst = prst_el.find(f'{{{A}}}avLst') if prst_el is not None else None
+            if avlst is not None:
+                for gd in avlst.findall(f'{{{A}}}gd'):
+                    if gd.attrib.get('name') != 'adj1':
+                        continue
+                    raw = gd.attrib.get('fmla', '')
+                    if raw.startswith('val '):
+                        raw = raw.split()[-1]
+                    if not raw:
+                        raw = gd.attrib.get('val', '')
+                    try:
+                        adj = max(0.0, min(1.0, int(raw) / 100000.0))
+                    except Exception:
+                        adj = None
+                    break
+            if has_bound_end and adj is None:
+                edge_points = None
+            else:
+                if idx in (2, 4):
+                    if adj is not None:
+                        yb = y1 + (y2 - y1) * adj
+                        edge_points = [(x1, yb)]
+                    else:
+                        elbow_x = ax + w if fh else ax
+                        elbow_y = ay if fv else ay + h
+                        edge_points = [(elbow_x, elbow_y)]
+                elif idx in (3, 5):
+                    if adj is not None:
+                        xb = x1 + (x2 - x1) * adj
+                        edge_points = [(xb, y1)]
+                    else:
+                        elbow_x = ax if fh else ax + w
+                        elbow_y = ay + h if fv else ay
+                        edge_points = [(elbow_x, elbow_y)]
+                else:
+                    if adj is None:
+                        elbow_x = ax + w if fh else ax
+                        elbow_y = ay if fv else ay + h
+                        edge_points = [(elbow_x, elbow_y)]
+                    else:
+                        edge_points = [(x1, y1 + (y2 - y1) * adj)]
+        else:
+            # Non-elbow connectors: center-line endpoints along the major axis.
+            if w >= h:
+                y = ay + (h / 2.0)
+                x1, y1, x2, y2 = ax, y, ax + w, y
+                if fh:
+                    x1, y1, x2, y2 = x2, y2, x1, y1
+            else:
+                x = ax + (w / 2.0)
+                x1, y1, x2, y2 = x, ay, x, ay + h
+                if fv:
+                    x1, y1, x2, y2 = x2, y2, x1, y1
+        eff_rot = rot
+        if prst_name.startswith('bentConnector') and rot:
+            q = round(rot / 90.0)
+            snapped = q * 90.0
+            if abs(rot - snapped) <= 1.0:
+                eff_rot = snapped
+        if eff_rot:
+            cx, cy = ax + (w / 2.0), ay + (h / 2.0)
+            x1, y1 = _rotate_point(x1, y1, cx, cy, -eff_rot)
+            x2, y2 = _rotate_point(x2, y2, cx, cy, -eff_rot)
+            if edge_points:
+                edge_points = [
+                    _rotate_point(px, py, cx, cy, -eff_rot)
+                    for px, py in edge_points
+                ]
 
     # Line appearance
     ln = spr.find(f'{{{A}}}ln')
@@ -1864,25 +2092,64 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
     ln_parts, has_head, has_tail = _ln_style_parts(ln)
 
     # Preset connector geometry -> drawio edge routing hint.
-    prst_el = spr.find(f'{{{A}}}prstGeom')
-    prst_name = prst_el.attrib.get('prst', '') if prst_el is not None else ''
     parts = ['html=1', 'rounded=0', 'jumpStyle=none']
     if prst_name.startswith('bentConnector'):
-        parts.append('edgeStyle=orthogonalEdgeStyle')
+        # Free connectors are stabilized by explicit points; shape-bound
+        # connectors are better left on orthogonal routing.
+        if has_bound_end:
+            parts.append('edgeStyle=orthogonalEdgeStyle')
+        else:
+            parts.append('edgeStyle=none')
     elif prst_name.startswith('curvedConnector'):
-        parts.append('edgeStyle=orthogonalEdgeStyle')
+        parts.append('edgeStyle=none')
         parts.append('curved=1')
+    elif prst_name.startswith('straightConnector'):
+        parts.append('edgeStyle=none')
+        
+    if src_idx:
+        if src_idx == '0': parts.append('exitX=0.5;exitY=0;exitDx=0;exitDy=0')
+        elif src_idx == '1': parts.append('exitX=0;exitY=0.5;exitDx=0;exitDy=0')
+        elif src_idx == '2': parts.append('exitX=0.5;exitY=1;exitDx=0;exitDy=0')
+        elif src_idx == '3': parts.append('exitX=1;exitY=0.5;exitDx=0;exitDy=0')
+    if tgt_idx:
+        if tgt_idx == '0': parts.append('entryX=0.5;entryY=0;entryDx=0;entryDy=0')
+        elif tgt_idx == '1': parts.append('entryX=0;entryY=0.5;entryDx=0;entryDy=0')
+        elif tgt_idx == '2': parts.append('entryX=0.5;entryY=1;entryDx=0;entryDy=0')
+        elif tgt_idx == '3': parts.append('entryX=1;entryY=0.5;entryDx=0;entryDy=0')
+
     parts.append(f'strokeColor={color}')
     if lw_px > 1:
         parts.append(f'strokeWidth={lw_px}')
     # Suppress drawio's default classic arrow when OOXML has no markers.
-    if not has_head:
-        parts.append('startArrow=none')
-    if not has_tail:
-        parts.append('endArrow=none')
-    parts.extend(ln_parts)
+    # When from/to corners are supplied the from→to direction is canonical, so
+    # OOXML tailEnd (the "pointing end") maps to DrawIO endArrow (targetPoint).
+    # Without explicit corners the legacy flip heuristic may have reversed the
+    # path, so the swapped mapping (tail→start, head→end) is kept for that path.
+    if src_id or tgt_id or (from_corner is not None and to_corner is not None):
+        # When anchored or bound conceptually, direction is fixed.
+        # Anchor-level or bound edges: tailEnd = arrow tip = to side = endArrow
+        if not has_tail:
+            parts.append('endArrow=none')
+        if not has_head:
+            parts.append('startArrow=none')
+        # Re-map ln_parts: swap startArrow↔endArrow produced by _ln_style_parts
+        remapped = []
+        for p in ln_parts:
+            if p.startswith('startArrow='):
+                remapped.append('endArrow=' + p[len('startArrow='):])
+            elif p.startswith('endArrow='):
+                remapped.append('startArrow=' + p[len('endArrow='):])
+            else:
+                remapped.append(p)
+        parts.extend(remapped)
+    else:
+        if not has_head:
+            parts.append('startArrow=none')
+        if not has_tail:
+            parts.append('endArrow=none')
+        parts.extend(ln_parts)
     style = ';'.join(parts) + ';'
-    bld.add_edge(x1, y1, x2, y2, style)
+    bld.add_edge(x1, y1, x2, y2, style, points=edge_points, src_id=src_id, tgt_id=tgt_id, edge_id=cxn_id)
 
 
 def _emit_cxnsp(cxn, pax, pay, sx, sy, bld):
@@ -1955,11 +2222,13 @@ def _emit_pic(pic, images, pax, pay, sx, sy, bld):
     ay = pay + int(off.attrib.get('y', 0)) * sy
     w = int(ext.attrib.get('cx', 0)) * sx
     h = int(ext.attrib.get('cy', 0)) * sy
+    nv = pic.find(f'{{{XDR}}}nvPicPr/{{{XDR}}}cNvPr')
+    sp_id = nv.attrib.get('id') if nv is not None else None
+
     _render_pic_at_rect(ax, ay, w, h, data_uri,
-                        (primary_rid or chosen_rid), xfrm, bld)
+                        (primary_rid or chosen_rid), xfrm, bld, sp_id=sp_id)
 
-
-def _render_pic_at_rect(ax, ay, w, h, data_uri, has_ref, xfrm, bld):
+def _render_pic_at_rect(ax, ay, w, h, data_uri, has_ref, xfrm, bld, sp_id=None):
     """Render a picture at a resolved pixel rect, honoring rotation/flip.
 
     When ``data_uri`` is falsy but ``has_ref`` is true, draw a dashed
@@ -1972,7 +2241,7 @@ def _render_pic_at_rect(ax, ay, w, h, data_uri, has_ref, xfrm, bld):
     _append_transform_style(extras, rot, fh, fv)
     extra_style = ';'.join(extras) if extras else None
     if data_uri:
-        bld.add_image(ax, ay, w, h, data_uri, extra_style=extra_style)
+        bld.add_image(ax, ay, w, h, data_uri, extra_style=extra_style, sp_id=sp_id)
         return
     if has_ref:
         placeholder_parts = [
@@ -1982,7 +2251,7 @@ def _render_pic_at_rect(ax, ay, w, h, data_uri, has_ref, xfrm, bld):
         ]
         if extras:
             placeholder_parts.extend(extras)
-        bld.add('[image]', ax, ay, w, h, ';'.join(placeholder_parts) + ';')
+        bld.add('[image]', ax, ay, w, h, ';'.join(placeholder_parts) + ';', sp_id=sp_id)
 
 
 def _walk_group(grp, pax, pay, sx, sy, bld, images, depth=0):
@@ -2087,10 +2356,37 @@ def _add_drawing_shapes(z, drawing_path, col_x, row_y, bld, cfg):
             elif ct == 'cxnSp':
                 # Anchor-level connector: use the _anchor_rect bbox so the
                 # line endpoints align with the same pixel math the cell
-                # labels and shapes use. Bypassing this and reading raw EMU
-                # introduces a small but visible rightward/downward drift
-                # that accumulates across columns.
-                _render_cxnsp_at_rect(child, anc_x, anc_y, anc_w, anc_h, bld)
+                # labels and shapes use.
+                # Also pass the exact from/to pixel corners so _render_cxnsp_at_rect
+                # can skip xfrm rot/flip recomputation (the anchor already encodes
+                # the final on-sheet position).
+                cx_last = len(col_x) - 1
+                ry_last = len(row_y) - 1
+                from_el_c = anchor.find(f'{{{XDR}}}from')
+                to_el_c   = anchor.find(f'{{{XDR}}}to')
+                from_corner_c = None
+                to_corner_c   = None
+                if from_el_c is not None:
+                    ffc  = int(from_el_c.findtext(f'{{{XDR}}}col',     '0') or '0')
+                    ffco = int(from_el_c.findtext(f'{{{XDR}}}colOff', '0') or '0')
+                    ffr  = int(from_el_c.findtext(f'{{{XDR}}}row',     '0') or '0')
+                    ffro = int(from_el_c.findtext(f'{{{XDR}}}rowOff', '0') or '0')
+                    from_corner_c = (
+                        col_x[min(ffc, cx_last)] / cfg.scale + _emu_px(ffco, cfg),
+                        row_y[min(ffr, ry_last)] / cfg.scale + _emu_px(ffro, cfg),
+                    )
+                if to_el_c is not None:
+                    ftc  = int(to_el_c.findtext(f'{{{XDR}}}col',     '0') or '0')
+                    ftco = int(to_el_c.findtext(f'{{{XDR}}}colOff', '0') or '0')
+                    ftr  = int(to_el_c.findtext(f'{{{XDR}}}row',     '0') or '0')
+                    ftro = int(to_el_c.findtext(f'{{{XDR}}}rowOff', '0') or '0')
+                    to_corner_c = (
+                        col_x[min(ftc, cx_last)] / cfg.scale + _emu_px(ftco, cfg),
+                        row_y[min(ftr, ry_last)] / cfg.scale + _emu_px(ftro, cfg),
+                    )
+                _render_cxnsp_at_rect(child, anc_x, anc_y, anc_w, anc_h, bld,
+                                      from_corner=from_corner_c,
+                                      to_corner=to_corner_c)
             elif ct == 'pic':
                 # Top-level picture in anchor: resolve the primary/SVG alternate
                 # rid and render at the anchor rect.
@@ -2256,7 +2552,7 @@ def convert_sheets_to_file(input_path, sheet_names, output_path, cfg=None, log_f
             diagrams.append(_build_sheet_xml(z, sn, f'd{idx}', resources, cfg, log))
     xml_out = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<mxfile host="ExcelToDrawIO" version="1.0" type="device">\n'
+        '<mxfile host="ExcelToDrawIOPlus" version="1.0" type="device">\n'
         + ''.join(diagrams)
         + '</mxfile>\n'
     )
