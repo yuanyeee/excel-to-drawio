@@ -1868,14 +1868,19 @@ def _emit_sp(sp, pax, pay, sx, sy, bld):
     _render_sp(sp, ax, ay, w, h, bld)
 
 
-def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
+def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, from_corner=None, to_corner=None):
     """Emit a connector as a drawio edge for a pre-resolved bbox rect.
 
-    ``ax/ay/w/h`` is the connector's bounding box in drawio pixels. The line
-    runs along one of the bbox diagonals, selected by ``flipH``/``flipV`` on
-    the underlying ``a:xfrm``. Used by both the anchor-level path (which
-    derives the rect from ``_anchor_rect``, so it shares pixel math with
-    shapes and cell labels) and the group-level path in ``_emit_cxnsp``.
+    ``ax/ay/w/h`` is the connector's bounding box in drawio pixels.
+    ``from_corner`` and ``to_corner`` are optional (x, y) absolute pixel
+    coordinates for the true start/end of the connector (derived from the
+    ``xdr:from`` / ``xdr:to`` anchor elements).  When provided they replace
+    the flip-based endpoint heuristic so that anchor-level connectors always
+    have exactly the right terminal positions.  The elbow waypoint is still
+    derived from the anchor bbox corners.
+    Used by both the anchor-level path (which derives the rect from
+    ``_anchor_rect``, so it shares pixel math with shapes and cell labels)
+    and the group-level path in ``_emit_cxnsp``.
     """
     spr = cxn.find(f'{{{XDR}}}spPr')
     if spr is None:
@@ -1892,94 +1897,137 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
     xfrm = spr.find(f'{{{A}}}xfrm')
     rot, fh, fv = _xfrm_transform(xfrm)
     edge_points = None
-    if prst_name.startswith('bentConnector'):
-        # OOXML bent connectors are orthogonal/elbow polylines.
-        # When rendered as free drawio edges (no source/target cells), passing
-        # only sourcePoint/targetPoint often collapses into a straight segment.
-        # Keep opposite-corner endpoints and provide explicit waypoint(s) so the
-        # elbow remains visible.
-        if not fh and not fv:
-            x1, y1, x2, y2 = ax, ay, ax + w, ay + h
-        elif fh and not fv:
-            x1, y1, x2, y2 = ax + w, ay, ax, ay + h
-        elif fv and not fh:
-            x1, y1, x2, y2 = ax, ay + h, ax + w, ay
-        else:
-            x1, y1, x2, y2 = ax + w, ay + h, ax, ay
-        m = re.search(r'(\d+)$', prst_name or '')
-        idx = int(m.group(1)) if m else 2
-        # Optional bend adjustment from OOXML (adj1: 0..100000).
-        # When present, use it to place the elbow instead of always using the
-        # far corner. This is important for cases where Excel uses a short
-        # first leg (as seen in sample screenshots).
-        adj = None
-        avlst = prst_el.find(f'{{{A}}}avLst') if prst_el is not None else None
-        if avlst is not None:
-            for gd in avlst.findall(f'{{{A}}}gd'):
-                if gd.attrib.get('name') != 'adj1':
-                    continue
-                raw = gd.attrib.get('fmla', '')
-                if raw.startswith('val '):
-                    raw = raw.split()[-1]
-                if not raw:
-                    raw = gd.attrib.get('val', '')
-                try:
-                    adj = max(0.0, min(1.0, int(raw) / 100000.0))
-                except Exception:
-                    adj = None
-                break
-        # For shape-bound connectors, drawio orth routing is usually closer to
-        # Excel; avoid forcing explicit elbows unless adj1 is present.
-        if has_bound_end and adj is None:
-            edge_points = None
-        else:
-            # Force a single-corner elbow (no middle crank points).
-            # idx group controls whether the first leg is horizontal/vertical.
-            if idx in (2, 4):
-                if adj is not None:
-                    yb = y1 + (y2 - y1) * adj
-                    edge_points = [(x1, yb)]  # vertical -> horizontal
+
+    # When the caller supplies exact from/to corners (anchor-level connectors)
+    # we use them directly and skip all flip/rot heuristics.  The anchor bbox
+    # already encodes the on-sheet position; applying xfrm rot/flip on top of
+    # it re-rotates coordinates that have already been placed correctly and
+    # produces wrong elbow positions or negative coordinates.
+    if from_corner is not None and to_corner is not None:
+        x1, y1 = from_corner
+        x2, y2 = to_corner
+        if prst_name.startswith('bentConnector'):
+            m = re.search(r'(\d+)$', prst_name or '')
+            idx = int(m.group(1)) if m else 2
+            adj = None
+            avlst = prst_el.find(f'{{{A}}}avLst') if prst_el is not None else None
+            if avlst is not None:
+                for gd in avlst.findall(f'{{{A}}}gd'):
+                    if gd.attrib.get('name') != 'adj1':
+                        continue
+                    raw = gd.attrib.get('fmla', '')
+                    if raw.startswith('val '):
+                        raw = raw.split()[-1]
+                    if not raw:
+                        raw = gd.attrib.get('val', '')
+                    try:
+                        adj = max(0.0, min(1.0, int(raw) / 100000.0))
+                    except Exception:
+                        adj = None
+                    break
+            if not has_bound_end or adj is not None:
+                # Determine elbow from prst preset type.
+                # For bentConnector3/5 (idx 3 or 5): first leg is horizontal
+                # For bentConnector2/4 (idx 2 or 4): first leg is vertical
+                # Excel ignores xfrm bbox aspect ratio for anchor-based routing
+                # and strictly follows the preset type.
+                if idx in (3, 5):
+                    # Horizontal first -> elbow at (x2, y1)
+                    if adj is not None:
+                        xb = x1 + (x2 - x1) * adj
+                        edge_points = [(xb, y1)]
+                    else:
+                        edge_points = [(x2, y1)]
                 else:
-                    edge_points = [(x1, y2)]  # vertical -> horizontal
-            elif idx in (3, 5):
-                if adj is not None:
-                    xb = x1 + (x2 - x1) * adj
-                    edge_points = [(xb, y1)]  # horizontal -> vertical
-                else:
-                    edge_points = [(x2, y1)]  # horizontal -> vertical
-            else:
-                edge_points = [(x1, y2)] if adj is None else [(x1, y1 + (y2 - y1) * adj)]
+                    # Vertical first -> elbow at (x1, y2)
+                    if adj is not None:
+                        yb = y1 + (y2 - y1) * adj
+                        edge_points = [(x1, yb)]
+                    else:
+                        edge_points = [(x1, y2)]
     else:
-        # Non-elbow connectors: center-line endpoints along the major axis.
-        if w >= h:
-            y = ay + (h / 2.0)
-            x1, y1, x2, y2 = ax, y, ax + w, y
-            if fh:
-                x1, y1, x2, y2 = x2, y2, x1, y1
+        if prst_name.startswith('bentConnector'):
+            # OOXML bent connectors are orthogonal/elbow polylines.
+            # Keep opposite-corner endpoints and provide explicit waypoint(s).
+            if not fh and not fv:
+                x1, y1, x2, y2 = ax, ay, ax + w, ay + h
+            elif fh and not fv:
+                x1, y1, x2, y2 = ax + w, ay, ax, ay + h
+            elif fv and not fh:
+                x1, y1, x2, y2 = ax, ay + h, ax + w, ay
+            else:
+                x1, y1, x2, y2 = ax + w, ay + h, ax, ay
+            m = re.search(r'(\d+)$', prst_name or '')
+            idx = int(m.group(1)) if m else 2
+            adj = None
+            avlst = prst_el.find(f'{{{A}}}avLst') if prst_el is not None else None
+            if avlst is not None:
+                for gd in avlst.findall(f'{{{A}}}gd'):
+                    if gd.attrib.get('name') != 'adj1':
+                        continue
+                    raw = gd.attrib.get('fmla', '')
+                    if raw.startswith('val '):
+                        raw = raw.split()[-1]
+                    if not raw:
+                        raw = gd.attrib.get('val', '')
+                    try:
+                        adj = max(0.0, min(1.0, int(raw) / 100000.0))
+                    except Exception:
+                        adj = None
+                    break
+            if has_bound_end and adj is None:
+                edge_points = None
+            else:
+                if idx in (2, 4):
+                    if adj is not None:
+                        yb = y1 + (y2 - y1) * adj
+                        edge_points = [(x1, yb)]
+                    else:
+                        elbow_x = ax + w if fh else ax
+                        elbow_y = ay if fv else ay + h
+                        edge_points = [(elbow_x, elbow_y)]
+                elif idx in (3, 5):
+                    if adj is not None:
+                        xb = x1 + (x2 - x1) * adj
+                        edge_points = [(xb, y1)]
+                    else:
+                        elbow_x = ax if fh else ax + w
+                        elbow_y = ay + h if fv else ay
+                        edge_points = [(elbow_x, elbow_y)]
+                else:
+                    if adj is None:
+                        elbow_x = ax + w if fh else ax
+                        elbow_y = ay if fv else ay + h
+                        edge_points = [(elbow_x, elbow_y)]
+                    else:
+                        edge_points = [(x1, y1 + (y2 - y1) * adj)]
         else:
-            x = ax + (w / 2.0)
-            x1, y1, x2, y2 = x, ay, x, ay + h
-            if fv:
-                x1, y1, x2, y2 = x2, y2, x1, y1
-    eff_rot = rot
-    # Elbow connectors are usually quarter-turn oriented; snap near-right-angle
-    # rotations to avoid mirrored routing caused by tiny float/import noise.
-    if prst_name.startswith('bentConnector') and rot:
-        q = round(rot / 90.0)
-        snapped = q * 90.0
-        if abs(rot - snapped) <= 1.0:
-            eff_rot = snapped
-    if eff_rot:
-        cx, cy = ax + (w / 2.0), ay + (h / 2.0)
-        # OOXML a:xfrm rot uses opposite sign vs drawio screen coordinates here.
-        # Use negative rotation to avoid mirrored connector direction.
-        x1, y1 = _rotate_point(x1, y1, cx, cy, -eff_rot)
-        x2, y2 = _rotate_point(x2, y2, cx, cy, -eff_rot)
-        if edge_points:
-            edge_points = [
-                _rotate_point(px, py, cx, cy, -eff_rot)
-                for px, py in edge_points
-            ]
+            # Non-elbow connectors: center-line endpoints along the major axis.
+            if w >= h:
+                y = ay + (h / 2.0)
+                x1, y1, x2, y2 = ax, y, ax + w, y
+                if fh:
+                    x1, y1, x2, y2 = x2, y2, x1, y1
+            else:
+                x = ax + (w / 2.0)
+                x1, y1, x2, y2 = x, ay, x, ay + h
+                if fv:
+                    x1, y1, x2, y2 = x2, y2, x1, y1
+        eff_rot = rot
+        if prst_name.startswith('bentConnector') and rot:
+            q = round(rot / 90.0)
+            snapped = q * 90.0
+            if abs(rot - snapped) <= 1.0:
+                eff_rot = snapped
+        if eff_rot:
+            cx, cy = ax + (w / 2.0), ay + (h / 2.0)
+            x1, y1 = _rotate_point(x1, y1, cx, cy, -eff_rot)
+            x2, y2 = _rotate_point(x2, y2, cx, cy, -eff_rot)
+            if edge_points:
+                edge_points = [
+                    _rotate_point(px, py, cx, cy, -eff_rot)
+                    for px, py in edge_points
+                ]
 
     # Line appearance
     ln = spr.find(f'{{{A}}}ln')
@@ -2014,11 +2062,32 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
     if lw_px > 1:
         parts.append(f'strokeWidth={lw_px}')
     # Suppress drawio's default classic arrow when OOXML has no markers.
-    if not has_head:
-        parts.append('startArrow=none')
-    if not has_tail:
-        parts.append('endArrow=none')
-    parts.extend(ln_parts)
+    # When from/to corners are supplied the from→to direction is canonical, so
+    # OOXML tailEnd (the "pointing end") maps to DrawIO endArrow (targetPoint).
+    # Without explicit corners the legacy flip heuristic may have reversed the
+    # path, so the swapped mapping (tail→start, head→end) is kept for that path.
+    if from_corner is not None and to_corner is not None:
+        # Anchor-level: tailEnd = arrow tip = to side = endArrow
+        if not has_tail:
+            parts.append('endArrow=none')
+        if not has_head:
+            parts.append('startArrow=none')
+        # Re-map ln_parts: swap startArrow↔endArrow produced by _ln_style_parts
+        remapped = []
+        for p in ln_parts:
+            if p.startswith('startArrow='):
+                remapped.append('endArrow=' + p[len('startArrow='):])
+            elif p.startswith('endArrow='):
+                remapped.append('startArrow=' + p[len('endArrow='):])
+            else:
+                remapped.append(p)
+        parts.extend(remapped)
+    else:
+        if not has_head:
+            parts.append('startArrow=none')
+        if not has_tail:
+            parts.append('endArrow=none')
+        parts.extend(ln_parts)
     style = ';'.join(parts) + ';'
     bld.add_edge(x1, y1, x2, y2, style, points=edge_points)
 
@@ -2225,10 +2294,37 @@ def _add_drawing_shapes(z, drawing_path, col_x, row_y, bld, cfg):
             elif ct == 'cxnSp':
                 # Anchor-level connector: use the _anchor_rect bbox so the
                 # line endpoints align with the same pixel math the cell
-                # labels and shapes use. Bypassing this and reading raw EMU
-                # introduces a small but visible rightward/downward drift
-                # that accumulates across columns.
-                _render_cxnsp_at_rect(child, anc_x, anc_y, anc_w, anc_h, bld)
+                # labels and shapes use.
+                # Also pass the exact from/to pixel corners so _render_cxnsp_at_rect
+                # can skip xfrm rot/flip recomputation (the anchor already encodes
+                # the final on-sheet position).
+                cx_last = len(col_x) - 1
+                ry_last = len(row_y) - 1
+                from_el_c = anchor.find(f'{{{XDR}}}from')
+                to_el_c   = anchor.find(f'{{{XDR}}}to')
+                from_corner_c = None
+                to_corner_c   = None
+                if from_el_c is not None:
+                    ffc  = int(from_el_c.findtext(f'{{{XDR}}}col',     '0') or '0')
+                    ffco = int(from_el_c.findtext(f'{{{XDR}}}colOff', '0') or '0')
+                    ffr  = int(from_el_c.findtext(f'{{{XDR}}}row',     '0') or '0')
+                    ffro = int(from_el_c.findtext(f'{{{XDR}}}rowOff', '0') or '0')
+                    from_corner_c = (
+                        col_x[min(ffc, cx_last)] / cfg.scale + _emu_px(ffco, cfg),
+                        row_y[min(ffr, ry_last)] / cfg.scale + _emu_px(ffro, cfg),
+                    )
+                if to_el_c is not None:
+                    ftc  = int(to_el_c.findtext(f'{{{XDR}}}col',     '0') or '0')
+                    ftco = int(to_el_c.findtext(f'{{{XDR}}}colOff', '0') or '0')
+                    ftr  = int(to_el_c.findtext(f'{{{XDR}}}row',     '0') or '0')
+                    ftro = int(to_el_c.findtext(f'{{{XDR}}}rowOff', '0') or '0')
+                    to_corner_c = (
+                        col_x[min(ftc, cx_last)] / cfg.scale + _emu_px(ftco, cfg),
+                        row_y[min(ftr, ry_last)] / cfg.scale + _emu_px(ftro, cfg),
+                    )
+                _render_cxnsp_at_rect(child, anc_x, anc_y, anc_w, anc_h, bld,
+                                      from_corner=from_corner_c,
+                                      to_corner=to_corner_c)
             elif ct == 'pic':
                 # Top-level picture in anchor: resolve the primary/SVG alternate
                 # rid and render at the anchor rect.
