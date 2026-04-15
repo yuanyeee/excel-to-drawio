@@ -699,7 +699,7 @@ class DrawioBuilder:
         hdr = (
             f'  <diagram id="{diagram_id}" name="{html.escape(str(self._diagram_name))}">\n'
             '    <mxGraphModel grid="0" guides="1" tooltips="1" connect="1" arrows="1"\n'
-            f'                  fold="1" page="1" pageScale="1" pageWidth="{page_w}"\n'
+            f'                  fold="1" page="0" pageScale="1" pageWidth="{page_w}"\n'
             f'                  pageHeight="{page_h}" math="0" shadow="0">\n'
             '      <root>\n'
             '        <mxCell id="0"/>\n'
