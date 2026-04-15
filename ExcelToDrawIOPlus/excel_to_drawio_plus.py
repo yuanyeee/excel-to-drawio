@@ -1904,11 +1904,11 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
         # Force a single-corner elbow (no middle crank points).
         # idx group controls whether the first leg is horizontal or vertical.
         if idx in (2, 4):
-            edge_points = [(x2, y1)]  # horizontal -> vertical
-        elif idx in (3, 5):
             edge_points = [(x1, y2)]  # vertical -> horizontal
+        elif idx in (3, 5):
+            edge_points = [(x2, y1)]  # horizontal -> vertical
         else:
-            edge_points = [(x2, y1)]
+            edge_points = [(x1, y2)]
     else:
         # Non-elbow connectors: center-line endpoints along the major axis.
         if w >= h:
