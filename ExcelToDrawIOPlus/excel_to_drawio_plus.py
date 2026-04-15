@@ -1898,30 +1898,12 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
             x1, y1, x2, y2 = ax + w, ay + h, ax, ay
         m = re.search(r'(\d+)$', prst_name or '')
         idx = int(m.group(1)) if m else 2
-        # Read optional OOXML bend adjustment (0..100000, default 50000).
-        # This helps keep the first segment length closer to Excel output.
-        adj = 0.5
-        avlst = prst_el.find(f'{{{A}}}avLst') if prst_el is not None else None
-        if avlst is not None:
-            for gd in avlst.findall(f'{{{A}}}gd'):
-                if gd.attrib.get('name') == 'adj1':
-                    try:
-                        adj = max(0.0, min(1.0, int(gd.attrib.get('fmla', 'val 50000').split()[-1]) / 100000.0))
-                    except Exception:
-                        try:
-                            adj = max(0.0, min(1.0, int(gd.attrib.get('val', '50000')) / 100000.0))
-                        except Exception:
-                            adj = 0.5
-                    break
-
-        # Use one explicit elbow waypoint and avoid drawio auto-orth routing.
+        # Force a single-corner elbow (no middle crank points).
         # idx group controls whether the first leg is horizontal or vertical.
         if idx in (2, 4):
-            bx = x1 + (x2 - x1) * adj
-            edge_points = [(bx, y1)]
+            edge_points = [(x2, y1)]  # horizontal -> vertical
         elif idx in (3, 5):
-            by = y1 + (y2 - y1) * adj
-            edge_points = [(x1, by)]
+            edge_points = [(x1, y2)]  # vertical -> horizontal
         else:
             edge_points = [(x2, y1)]
     else:
@@ -1974,9 +1956,8 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
     # Preset connector geometry -> drawio edge routing hint.
     parts = ['html=1', 'rounded=0', 'jumpStyle=none']
     if prst_name.startswith('bentConnector'):
-        # segmentEdgeStyle + explicit waypoint is more stable for free edges
-        # than orthogonalEdgeStyle (which may reroute unexpectedly).
-        parts.append('edgeStyle=segmentEdgeStyle')
+        # edgeStyle=none + one corner waypoint keeps exactly one bend.
+        parts.append('edgeStyle=none')
     elif prst_name.startswith('curvedConnector'):
         parts.append('edgeStyle=none')
         parts.append('curved=1')
