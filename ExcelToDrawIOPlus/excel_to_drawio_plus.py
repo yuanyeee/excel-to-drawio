@@ -586,6 +586,7 @@ class DrawioBuilder:
         self._cells = []
         self._next = 2
         self._seen = {}  # key -> cid
+        self._emitted_cids = set()
         self._max_x = 0
         self._max_y = 0
         self._diagram_name = diagram_name
@@ -611,7 +612,11 @@ class DrawioBuilder:
             return self._seen[key]
         
         cid = self.get_solid_cid(sp_id)
+        if cid in self._emitted_cids:
+            return cid
+
         self._seen[key] = cid
+        self._emitted_cids.add(cid)
 
         self._max_x = max(self._max_x, x + w)
         self._max_y = max(self._max_y, y + h)
@@ -622,7 +627,7 @@ class DrawioBuilder:
             f'</mxCell>'
         )
 
-    def add_image(self, x, y, w, h, data_uri, extra_style=None):
+    def add_image(self, x, y, w, h, data_uri, extra_style=None, sp_id=None):
         """Add an embedded image as a DrawIO image shape.
 
         ``extra_style`` may be a string of already-joined style fragments (no
@@ -631,10 +636,14 @@ class DrawioBuilder:
         """
         x, y = round(x), round(y)
         w, h = round(max(w, 1)), round(max(h, 1))
+
+        cid = self.get_solid_cid(sp_id)
+        if cid in self._emitted_cids:
+            return cid
+        self._emitted_cids.add(cid)
+
         self._max_x = max(self._max_x, x + w)
         self._max_y = max(self._max_y, y + h)
-        cid = self._next
-        self._next += 1
         style = (f'shape=image;verticalLabelPosition=bottom;labelBackgroundColor=default;'
                  f'verticalAlign=top;aspect=fixed;imageAspect=0;'
                  f'image={data_uri};')
@@ -646,7 +655,7 @@ class DrawioBuilder:
             f'</mxCell>'
         )
 
-    def add_edge(self, x1, y1, x2, y2, style, points=None, src_id=None, tgt_id=None):
+    def add_edge(self, x1, y1, x2, y2, style, points=None, src_id=None, tgt_id=None, edge_id=None):
         """Add a drawio edge (line) between two explicit points.
 
         Used for connector shapes (``xdr:cxnSp``) so they render as real lines
@@ -655,9 +664,14 @@ class DrawioBuilder:
         """
         x1, y1 = round(x1), round(y1)
         x2, y2 = round(x2), round(y2)
+
+        cid = self.get_solid_cid(edge_id)
+        if cid in self._emitted_cids:
+            return cid
+        self._emitted_cids.add(cid)
+
         self._max_x = max(self._max_x, x1, x2)
         self._max_y = max(self._max_y, y1, y2)
-        cid = self.get_solid_cid(None)
 
         points_xml = ''
         if points:
@@ -1905,6 +1919,9 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, from_corner=None, to_corner=No
         return
     prst_el = spr.find(f'{{{A}}}prstGeom')
     prst_name = prst_el.attrib.get('prst', '') if prst_el is not None else ''
+    nv_sp = cxn.find(f'{{{XDR}}}nvCxnSpPr/{{{XDR}}}cNvPr')
+    cxn_id = nv_sp.attrib.get('id') if nv_sp is not None else None
+
     cnv = cxn.find(f'{{{XDR}}}nvCxnSpPr/{{{XDR}}}cNvCxnSpPr')
     has_bound_end = False
     src_id = None
@@ -2129,7 +2146,7 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, from_corner=None, to_corner=No
             parts.append('endArrow=none')
         parts.extend(ln_parts)
     style = ';'.join(parts) + ';'
-    bld.add_edge(x1, y1, x2, y2, style, points=edge_points, src_id=src_id, tgt_id=tgt_id)
+    bld.add_edge(x1, y1, x2, y2, style, points=edge_points, src_id=src_id, tgt_id=tgt_id, edge_id=cxn_id)
 
 
 def _emit_cxnsp(cxn, pax, pay, sx, sy, bld):
@@ -2202,11 +2219,13 @@ def _emit_pic(pic, images, pax, pay, sx, sy, bld):
     ay = pay + int(off.attrib.get('y', 0)) * sy
     w = int(ext.attrib.get('cx', 0)) * sx
     h = int(ext.attrib.get('cy', 0)) * sy
+    nv = pic.find(f'{{{XDR}}}nvPicPr/{{{XDR}}}cNvPr')
+    sp_id = nv.attrib.get('id') if nv is not None else None
+
     _render_pic_at_rect(ax, ay, w, h, data_uri,
-                        (primary_rid or chosen_rid), xfrm, bld)
+                        (primary_rid or chosen_rid), xfrm, bld, sp_id=sp_id)
 
-
-def _render_pic_at_rect(ax, ay, w, h, data_uri, has_ref, xfrm, bld):
+def _render_pic_at_rect(ax, ay, w, h, data_uri, has_ref, xfrm, bld, sp_id=None):
     """Render a picture at a resolved pixel rect, honoring rotation/flip.
 
     When ``data_uri`` is falsy but ``has_ref`` is true, draw a dashed
@@ -2219,7 +2238,7 @@ def _render_pic_at_rect(ax, ay, w, h, data_uri, has_ref, xfrm, bld):
     _append_transform_style(extras, rot, fh, fv)
     extra_style = ';'.join(extras) if extras else None
     if data_uri:
-        bld.add_image(ax, ay, w, h, data_uri, extra_style=extra_style)
+        bld.add_image(ax, ay, w, h, data_uri, extra_style=extra_style, sp_id=sp_id)
         return
     if has_ref:
         placeholder_parts = [
@@ -2229,7 +2248,7 @@ def _render_pic_at_rect(ax, ay, w, h, data_uri, has_ref, xfrm, bld):
         ]
         if extras:
             placeholder_parts.extend(extras)
-        bld.add('[image]', ax, ay, w, h, ';'.join(placeholder_parts) + ';')
+        bld.add('[image]', ax, ay, w, h, ';'.join(placeholder_parts) + ';', sp_id=sp_id)
 
 
 def _walk_group(grp, pax, pay, sx, sy, bld, images, depth=0):
