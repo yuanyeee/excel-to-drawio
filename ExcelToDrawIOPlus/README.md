@@ -59,6 +59,24 @@ cd ExcelToDrawIOPlus
 python excel_to_drawio_plus.py --help
 ```
 
+
+### Windows バッチ (uv 実行)
+
+各フォルダに `run_uv.bat` (CLI) と `run_gui_uv.bat` (GUI) を用意しています。
+
+```bat
+cd ExcelToDrawIOPlus
+run_uv.bat input.xlsx
+run_gui_uv.bat
+```
+
+内部的には次のコマンドを実行します。
+
+```bat
+uv run excel_to_drawio_plus.py %*
+uv run desktop_app_plus.py
+```
+
 ## 使い方
 
 ### コマンドライン (CLI)
@@ -109,6 +127,8 @@ python excel_to_drawio_plus.py input.xlsx --no-merge-fills
 ```bash
 cd ExcelToDrawIOPlus
 python desktop_app_plus.py
+# または
+uv run desktop_app_plus.py
 ```
 
 1. **「Browse...」** をクリックして Excel ファイルを選択
