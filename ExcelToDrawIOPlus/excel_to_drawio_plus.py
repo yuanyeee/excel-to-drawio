@@ -1882,6 +1882,13 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
         return
     prst_el = spr.find(f'{{{A}}}prstGeom')
     prst_name = prst_el.attrib.get('prst', '') if prst_el is not None else ''
+    cnv = cxn.find(f'{{{XDR}}}nvCxnSpPr/{{{XDR}}}cNvCxnSpPr')
+    has_bound_end = False
+    if cnv is not None:
+        has_bound_end = (
+            cnv.find(f'{{{A}}}stCxn') is not None or
+            cnv.find(f'{{{A}}}endCxn') is not None
+        )
     xfrm = spr.find(f'{{{A}}}xfrm')
     rot, fh, fv = _xfrm_transform(xfrm)
     edge_points = None
@@ -1921,22 +1928,27 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
                 except Exception:
                     adj = None
                 break
-        # Force a single-corner elbow (no middle crank points).
-        # idx group controls whether the first leg is horizontal or vertical.
-        if idx in (2, 4):
-            if adj is not None:
-                yb = y1 + (y2 - y1) * adj
-                edge_points = [(x1, yb)]  # vertical -> horizontal
-            else:
-                edge_points = [(x1, y2)]  # vertical -> horizontal
-        elif idx in (3, 5):
-            if adj is not None:
-                xb = x1 + (x2 - x1) * adj
-                edge_points = [(xb, y1)]  # horizontal -> vertical
-            else:
-                edge_points = [(x2, y1)]  # horizontal -> vertical
+        # For shape-bound connectors, drawio orth routing is usually closer to
+        # Excel; avoid forcing explicit elbows unless adj1 is present.
+        if has_bound_end and adj is None:
+            edge_points = None
         else:
-            edge_points = [(x1, y2)] if adj is None else [(x1, y1 + (y2 - y1) * adj)]
+            # Force a single-corner elbow (no middle crank points).
+            # idx group controls whether the first leg is horizontal/vertical.
+            if idx in (2, 4):
+                if adj is not None:
+                    yb = y1 + (y2 - y1) * adj
+                    edge_points = [(x1, yb)]  # vertical -> horizontal
+                else:
+                    edge_points = [(x1, y2)]  # vertical -> horizontal
+            elif idx in (3, 5):
+                if adj is not None:
+                    xb = x1 + (x2 - x1) * adj
+                    edge_points = [(xb, y1)]  # horizontal -> vertical
+                else:
+                    edge_points = [(x2, y1)]  # horizontal -> vertical
+            else:
+                edge_points = [(x1, y2)] if adj is None else [(x1, y1 + (y2 - y1) * adj)]
     else:
         # Non-elbow connectors: center-line endpoints along the major axis.
         if w >= h:
@@ -1987,8 +1999,12 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
     # Preset connector geometry -> drawio edge routing hint.
     parts = ['html=1', 'rounded=0', 'jumpStyle=none']
     if prst_name.startswith('bentConnector'):
-        # edgeStyle=none + one corner waypoint keeps exactly one bend.
-        parts.append('edgeStyle=none')
+        # Free connectors are stabilized by explicit points; shape-bound
+        # connectors are better left on orthogonal routing.
+        if has_bound_end:
+            parts.append('edgeStyle=orthogonalEdgeStyle')
+        else:
+            parts.append('edgeStyle=none')
     elif prst_name.startswith('curvedConnector'):
         parts.append('edgeStyle=none')
         parts.append('curved=1')
