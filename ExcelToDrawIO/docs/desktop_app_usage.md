@@ -1,4 +1,6 @@
-﻿# Excel to Draw.io Desktop Tool 実行説明
+# Excel to Draw.io Desktop Tool 実行説明
+
+[🇯🇵 日本語](desktop_app_usage.md) | [🇬🇧 English](desktop_app_usage_en.md) | [🇨🇳 简体中文](desktop_app_usage_zh.md)
 
 ## 概要
 

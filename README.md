@@ -1,5 +1,7 @@
 # Excel to Draw.io Converter
 
+[🇯🇵 日本語](README.md) | [🇬🇧 English](README_en.md) | [🇨🇳 简体中文](README_zh.md)
+
 Excel ファイル(.xlsx / .xlsm)のシート内容を Draw.io (.drawio) 形式に変換するツールです。
 デスクトップ GUI とコマンドライン (CLI) の両方で利用できます。
 
