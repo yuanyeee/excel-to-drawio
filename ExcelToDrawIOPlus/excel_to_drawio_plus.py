@@ -1539,12 +1539,15 @@ def _ln_style_parts(ln):
     tail = ln.find(f'{{{A}}}tailEnd')
     has_head = head is not None
     has_tail = tail is not None
+    # OOXML headEnd/tailEnd semantics appear reversed relative to drawio's
+    # startArrow/endArrow in our coordinate path emission. Map head->end and
+    # tail->start so arrowheads land on the expected visual side.
     if has_head:
         htype = head.attrib.get('type', 'none')
-        parts.append(f'startArrow={ARROW_MAP.get(htype, "classic")}')
+        parts.append(f'endArrow={ARROW_MAP.get(htype, "classic")}')
     if has_tail:
         ttype = tail.attrib.get('type', 'none')
-        parts.append(f'endArrow={ARROW_MAP.get(ttype, "classic")}')
+        parts.append(f'startArrow={ARROW_MAP.get(ttype, "classic")}')
     prst = ln.find(f'{{{A}}}prstDash')
     if prst is not None:
         pval = prst.attrib.get('val', 'solid')
