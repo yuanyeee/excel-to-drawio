@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-REM Run stable converter with uv.
+REM Run converter with uv.
 REM Usage examples:
 REM   run_uv.bat input.xlsx
 REM   run_uv.bat input.xlsx -o output.drawio

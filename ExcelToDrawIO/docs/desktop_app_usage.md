@@ -6,7 +6,7 @@
 
 - 対応形式: `.xlsx`, `.xlsm`
 - UI: `tkinter`
-- 操作: ファイル選択 → シート選択 → 変換
+- 操作: ファイル選択 → シート選択 → オプション選択 → 変換
 
 ## 実行前提
 
@@ -32,6 +32,13 @@ python .\desktop_app.py
 4. 必要なら `Save As...` で保存先を変更します。
 5. `Convert` を押します。
 6. 正常終了すると、保存先に `.drawio` ファイルが作成されます。
+
+## 主なオプション
+
+- Include images: 画像の埋め込み有効/無効
+- Include borders: 罫線描画の有効/無効
+- Merge same-color fills: 同色塗りセルの結合描画
+- Skip hidden rows/cols: 非表示行/列を除外
 
 ## 画面項目
 
