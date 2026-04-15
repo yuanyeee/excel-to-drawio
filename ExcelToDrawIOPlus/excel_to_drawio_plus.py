@@ -1898,18 +1898,31 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
             x1, y1, x2, y2 = ax + w, ay + h, ax, ay
         m = re.search(r'(\d+)$', prst_name or '')
         idx = int(m.group(1)) if m else 2
-        # Bent connectors often need a "crank" route (two waypoints) to avoid
-        # collapsing into a straight segment in drawio free-edge rendering.
-        mid_x = x1 + (x2 - x1) / 2.0
-        mid_y = y1 + (y2 - y1) / 2.0
+        # Read optional OOXML bend adjustment (0..100000, default 50000).
+        # This helps keep the first segment length closer to Excel output.
+        adj = 0.5
+        avlst = prst_el.find(f'{{{A}}}avLst') if prst_el is not None else None
+        if avlst is not None:
+            for gd in avlst.findall(f'{{{A}}}gd'):
+                if gd.attrib.get('name') == 'adj1':
+                    try:
+                        adj = max(0.0, min(1.0, int(gd.attrib.get('fmla', 'val 50000').split()[-1]) / 100000.0))
+                    except Exception:
+                        try:
+                            adj = max(0.0, min(1.0, int(gd.attrib.get('val', '50000')) / 100000.0))
+                        except Exception:
+                            adj = 0.5
+                    break
+
+        # Use one explicit elbow waypoint and avoid drawio auto-orth routing.
+        # idx group controls whether the first leg is horizontal or vertical.
         if idx in (2, 4):
-            # Horizontal-first then vertical.
-            edge_points = [(mid_x, y1), (mid_x, y2)]
+            bx = x1 + (x2 - x1) * adj
+            edge_points = [(bx, y1)]
         elif idx in (3, 5):
-            # Vertical-first then horizontal.
-            edge_points = [(x1, mid_y), (x2, mid_y)]
+            by = y1 + (y2 - y1) * adj
+            edge_points = [(x1, by)]
         else:
-            # Fallback for unexpected preset numbers.
             edge_points = [(x2, y1)]
     else:
         # Non-elbow connectors: center-line endpoints along the major axis.
@@ -1961,8 +1974,9 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld):
     # Preset connector geometry -> drawio edge routing hint.
     parts = ['html=1', 'rounded=0', 'jumpStyle=none']
     if prst_name.startswith('bentConnector'):
-        parts.append('edgeStyle=orthogonalEdgeStyle')
-        parts.append('orthogonal=1')
+        # segmentEdgeStyle + explicit waypoint is more stable for free edges
+        # than orthogonalEdgeStyle (which may reroute unexpectedly).
+        parts.append('edgeStyle=segmentEdgeStyle')
     elif prst_name.startswith('curvedConnector'):
         parts.append('edgeStyle=none')
         parts.append('curved=1')
