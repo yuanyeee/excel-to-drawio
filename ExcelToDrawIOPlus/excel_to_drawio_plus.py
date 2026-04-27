@@ -2133,34 +2133,25 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, from_corner=None, to_corner=No
     parts.append(f'strokeColor={color}')
     if lw_px > 1:
         parts.append(f'strokeWidth={lw_px}')
-    # Suppress drawio's default classic arrow when OOXML has no markers.
-    # When from/to corners are supplied the from→to direction is canonical, so
-    # OOXML tailEnd (the "pointing end") maps to DrawIO endArrow (targetPoint).
-    # Without explicit corners the legacy flip heuristic may have reversed the
-    # path, so the swapped mapping (tail→start, head→end) is kept for that path.
-    if src_id or tgt_id or (from_corner is not None and to_corner is not None):
-        # When anchored or bound conceptually, direction is fixed.
-        # Anchor-level or bound edges: tailEnd = arrow tip = to side = endArrow
-        if not has_tail:
-            parts.append('endArrow=none')
-        if not has_head:
-            parts.append('startArrow=none')
-        # Re-map ln_parts: swap startArrow↔endArrow produced by _ln_style_parts
-        remapped = []
-        for p in ln_parts:
-            if p.startswith('startArrow='):
-                remapped.append('endArrow=' + p[len('startArrow='):])
-            elif p.startswith('endArrow='):
-                remapped.append('startArrow=' + p[len('endArrow='):])
-            else:
-                remapped.append(p)
-        parts.extend(remapped)
-    else:
-        if not has_head:
-            parts.append('startArrow=none')
-        if not has_tail:
-            parts.append('endArrow=none')
-        parts.extend(ln_parts)
+    # OOXML tailEnd is at the line's geometric end (the "pointing" side); it
+    # maps to drawio's endArrow. headEnd maps to startArrow. _ln_style_parts
+    # emits the inverted mapping for legacy reasons, so swap it back here for
+    # all connector paths (anchor-level, bound, and free) since the coordinate
+    # emission above already places drawio's start at OOXML's head and drawio's
+    # end at OOXML's tail under both flip-aware and corner-supplied routing.
+    if not has_tail:
+        parts.append('endArrow=none')
+    if not has_head:
+        parts.append('startArrow=none')
+    remapped = []
+    for p in ln_parts:
+        if p.startswith('startArrow='):
+            remapped.append('endArrow=' + p[len('startArrow='):])
+        elif p.startswith('endArrow='):
+            remapped.append('startArrow=' + p[len('endArrow='):])
+        else:
+            remapped.append(p)
+    parts.extend(remapped)
     style = ';'.join(parts) + ';'
     bld.add_edge(x1, y1, x2, y2, style, points=edge_points, src_id=src_id, tgt_id=tgt_id, edge_id=cxn_id)
 
