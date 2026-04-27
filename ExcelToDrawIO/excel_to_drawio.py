@@ -1986,12 +1986,15 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, from_corner=None, to_corner=No
                         adj = None
                     break
             if not has_bound_end or adj is not None:
-                # Determine elbow from prst preset type.
-                # For bentConnector3/5 (idx 3 or 5): first leg is horizontal
-                # For bentConnector2/4 (idx 2 or 4): first leg is vertical
+                # Determine elbow from prst preset type, per OOXML preset paths:
+                #   bentConnector2: M 0 0 L cx 0 L cx cy   (horizontal first)
+                #   bentConnector3: M 0 0 L 0 r L cx r L cx cy  (vertical first)
+                #   bentConnector4: horizontal first
+                #   bentConnector5: vertical first
+                # Even idx (2, 4) -> horizontal first; odd idx (3, 5) -> vertical first.
                 # Excel ignores xfrm bbox aspect ratio for anchor-based routing
                 # and strictly follows the preset type.
-                if idx in (3, 5):
+                if idx in (2, 4):
                     # Horizontal first -> elbow at (x2, y1)
                     if adj is not None:
                         xb = x1 + (x2 - x1) * adj
@@ -2038,7 +2041,8 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, from_corner=None, to_corner=No
             if has_bound_end and adj is None:
                 edge_points = None
             else:
-                if idx in (2, 4):
+                # Even idx (2, 4) -> horizontal first; odd idx (3, 5) -> vertical first.
+                if idx in (3, 5):
                     if adj is not None:
                         yb = y1 + (y2 - y1) * adj
                         edge_points = [(x1, yb)]
@@ -2046,7 +2050,7 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, from_corner=None, to_corner=No
                         elbow_x = ax + w if fh else ax
                         elbow_y = ay if fv else ay + h
                         edge_points = [(elbow_x, elbow_y)]
-                elif idx in (3, 5):
+                elif idx in (2, 4):
                     if adj is not None:
                         xb = x1 + (x2 - x1) * adj
                         edge_points = [(xb, y1)]
