@@ -884,6 +884,19 @@ def _build_merge_owner_map(sh_root):
     return owner
 
 
+def _extract_string_item_text(node):
+    # Concatenate visible text from <si>/<is>, excluding <rPh> furigana (ruby).
+    parts = []
+    direct_t = node.find(f'{{{SS}}}t')
+    if direct_t is not None and direct_t.text:
+        parts.append(direct_t.text)
+    for r in node.findall(f'{{{SS}}}r'):
+        rt = r.find(f'{{{SS}}}t')
+        if rt is not None and rt.text:
+            parts.append(rt.text)
+    return ''.join(parts)
+
+
 def _read_cell_raw_text(cell, shared_strings):
     ns = {'x': SS}
     cell_type = cell.attrib.get('t', '')
@@ -891,7 +904,7 @@ def _read_cell_raw_text(cell, shared_strings):
         inline = cell.find('x:is', ns)
         if inline is None:
             return ''
-        return ''.join(t.text for t in inline.iter(f'{{{SS}}}t') if t.text)
+        return _extract_string_item_text(inline)
     v_el = cell.find('x:v', ns)
     if v_el is None or v_el.text is None:
         return ''
@@ -2446,7 +2459,7 @@ def _load_shared_strings(z):
         return []
     ss_root = ET.fromstring(z.read('xl/sharedStrings.xml').decode('utf-8'))
     return [
-        ''.join(t.text for t in si.iter(f'{{{SS}}}t') if t.text)
+        _extract_string_item_text(si)
         for si in ss_root.findall(f'{{{SS}}}si')
     ]
 
