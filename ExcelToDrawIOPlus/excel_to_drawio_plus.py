@@ -1468,6 +1468,33 @@ def _sp_font_style(txb):
     return extra, None
 
 
+def _sp_text_align(txb):
+    """Read horizontal/vertical text alignment from a shape's txBody.
+
+    Returns (align, verticalAlign) using drawio style values, or None when
+    OOXML did not specify the attribute (so the caller can keep drawio's
+    defaults). Maps:
+      a:pPr@algn:    l -> left, ctr -> center, r -> right, just -> justify
+      a:bodyPr@anchor: t -> top, ctr -> middle, b -> bottom
+    """
+    if txb is None:
+        return None, None
+    align = None
+    valign = None
+    body_pr = txb.find(f'{{{A}}}bodyPr')
+    if body_pr is not None:
+        anc = body_pr.attrib.get('anchor')
+        valign = {'t': 'top', 'ctr': 'middle', 'b': 'bottom'}.get(anc)
+    p = txb.find(f'{{{A}}}p')
+    if p is not None:
+        ppr = p.find(f'{{{A}}}pPr')
+        if ppr is not None:
+            algn = ppr.attrib.get('algn')
+            align = {'l': 'left', 'ctr': 'center',
+                     'r': 'right', 'just': 'justify'}.get(algn)
+    return align, valign
+
+
 def _make_shape_style(prst, fill, lc, lw, fsz, font_extra=None,
                       shape_override=None, extra_parts=None):
     parts = ['whiteSpace=wrap', 'html=1']
@@ -1892,6 +1919,11 @@ def _render_sp(sp, ax, ay, w, h, bld):
     xfrm = spr.find(f'{{{A}}}xfrm')
     rot, fh, fv = _xfrm_transform(xfrm)
     _append_transform_style(extra, rot, fh, fv)
+    text_align, text_valign = _sp_text_align(txb)
+    if text_align:
+        extra.append(f'align={text_align}')
+    if text_valign:
+        extra.append(f'verticalAlign={text_valign}')
 
     style = _make_shape_style(prst, fill, lc, lw, fsz, fe,
                               shape_override=shape_override, extra_parts=extra)
