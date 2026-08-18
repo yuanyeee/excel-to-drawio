@@ -371,27 +371,30 @@ def _cxn_head_tail_corners(ax, ay, aw, ah, xfrm):
     remap those two corners onto the sheet-space anchor rect.  For a connector
     with an unbound end (no stCxn/endCxn) the free endpoint sits at one of
     these corners, so this resolves the correct one after rotation.
+
+    Rotation is applied as a direct corner permutation (TL -> TR -> BR -> BL)
+    rather than a geometric rotate-around-center, because rotating a non-square
+    rectangle's corner around its center does not land on a corner.
     """
     rot, fh, fv = _xfrm_transform(xfrm)
-    if not fh and not fv:
-        hx, hy = ax, ay
-        tx, ty = ax + aw, ay + ah
-    elif fh and not fv:
-        hx, hy = ax + aw, ay
-        tx, ty = ax, ay + ah
-    elif fv and not fh:
-        hx, hy = ax, ay + ah
-        tx, ty = ax + aw, ay
-    else:
-        hx, hy = ax + aw, ay + ah
-        tx, ty = ax, ay
-    if rot:
-        q = round(rot / 90.0)
-        if abs(rot - q * 90.0) <= 1.0:
-            cx, cy = ax + aw / 2.0, ay + ah / 2.0
-            hx, hy = _rotate_point(hx, hy, cx, cy, -q * 90.0)
-            tx, ty = _rotate_point(tx, ty, cx, cy, -q * 90.0)
-    return (hx, hy), (tx, ty)
+    corners = [(ax, ay), (ax + aw, ay), (ax + aw, ay + ah), (ax, ay + ah)]
+    # head starts at local top-left (index 0), tail at local bottom-right (2).
+    head = 0
+    tail = 2
+    if fh:
+        head = {0: 1, 1: 0, 2: 3, 3: 2}[head]
+        tail = {0: 1, 1: 0, 2: 3, 3: 2}[tail]
+    if fv:
+        head = {0: 3, 1: 2, 2: 1, 3: 0}[head]
+        tail = {0: 3, 1: 2, 2: 1, 3: 0}[tail]
+    q = round(rot / 90.0) % 4
+    if abs(rot - round(rot / 90.0) * 90.0) > 1.0:
+        q = 0
+    rot_map = {0: 1, 1: 2, 2: 3, 3: 0}
+    for _ in range(q):
+        head = rot_map[head]
+        tail = rot_map[tail]
+    return corners[head], corners[tail]
 
 
 def _add_drawing_shapes(z, drawing_path, col_x, row_y, bld, cfg, theme):
