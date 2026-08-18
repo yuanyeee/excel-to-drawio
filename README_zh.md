@@ -25,8 +25,6 @@
 
 ```bash
 pip install .
-# 开发安装（含测试运行器）:
-pip install -e ".[dev]"
 ```
 
 安装后可获得 `excel-to-drawio`（CLI）和 `excel-to-drawio-gui`（GUI）两个命令。
@@ -90,22 +88,9 @@ excel-to-drawio/
 │   ├── connectors.py         # 连接器渲染
 │   ├── shapes.py             # 形状渲染
 │   └── convert.py            # 转换编排
-├── tests/                    # pytest 测试
-│   ├── sample.xlsx           # golden 夹具
-│   ├── test_golden.py        # 逐字节 golden 校验
-│   ├── test_theme.py         # 主题泄漏回归测试
-│   └── test_api.py           # API 冒烟测试
-├── .github/workflows/ci.yml  # GitHub Actions CI
 ├── pyproject.toml            # 打包配置
 ├── LICENSE                   # MIT
 └── README.md                 # 本文件
-```
-
-## 开发
-
-```bash
-pip install -e ".[dev]"
-pytest
 ```
 
 ## 许可证

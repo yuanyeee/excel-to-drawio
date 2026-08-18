@@ -26,8 +26,6 @@ Both a desktop GUI and a command-line interface (CLI) are provided.
 
 ```bash
 pip install .
-# or, for an editable development install with the test runner:
-pip install -e ".[dev]"
 ```
 
 This exposes two console commands: `excel-to-drawio` (CLI) and
@@ -92,22 +90,9 @@ excel-to-drawio/
 │   ├── connectors.py         # connector rendering
 │   ├── shapes.py             # shape rendering
 │   └── convert.py            # conversion orchestration
-├── tests/                    # pytest suite
-│   ├── sample.xlsx           # golden fixture
-│   ├── test_golden.py        # byte-exact golden digest
-│   ├── test_theme.py         # theme-leak regression
-│   └── test_api.py           # API smoke tests
-├── .github/workflows/ci.yml  # GitHub Actions CI
 ├── pyproject.toml            # packaging + console scripts
 ├── LICENSE                   # MIT
 └── README.md                 # this file
-```
-
-## Development
-
-```bash
-pip install -e ".[dev]"
-pytest
 ```
 
 ## License

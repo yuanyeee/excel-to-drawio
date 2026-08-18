@@ -21,11 +21,6 @@ dependencies = []
 excel-to-drawio = "excel_to_drawio.__main__:main"
 excel-to-drawio-gui = "excel_to_drawio.desktop_app:main"
 
-[project.optional-dependencies]
-dev = ["pytest>=8.0"]
-
 [tool.hatch.build.targets.wheel]
 packages = ["excel_to_drawio"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]

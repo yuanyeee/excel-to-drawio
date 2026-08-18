@@ -65,7 +65,6 @@ Thumbs.db
 
 # Test files
 *.xlsx
-!tests/sample.xlsx
 
 # draw.io output
 *.drawio

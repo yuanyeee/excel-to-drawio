@@ -25,8 +25,6 @@ Excel ファイル(.xlsx / .xlsm)のシート内容を Draw.io (.drawio) 形式�
 
 ```bash
 pip install .
-# 開発用（テストランナー込み）:
-pip install -e ".[dev]"
 ```
 
 インストールすると `excel-to-drawio` (CLI) と `excel-to-drawio-gui` (GUI) の
@@ -90,22 +88,9 @@ excel-to-drawio/
 │   ├── connectors.py         # コネクター描画
 │   ├── shapes.py             # 図形描画
 │   └── convert.py            # 変換オーケストレーション
-├── tests/                    # pytest スイート
-│   ├── sample.xlsx           # ゴールデンフィクスチャ
-│   ├── test_golden.py        # バイト単位のゴールデン検証
-│   ├── test_theme.py         # テーマ漏れ回帰テスト
-│   └── test_api.py           # API スモークテスト
-├── .github/workflows/ci.yml  # GitHub Actions CI
 ├── pyproject.toml            # パッケージング設定
 ├── LICENSE                   # MIT
 └── README.md                 # このファイル
-```
-
-## 開発
-
-```bash
-pip install -e ".[dev]"
-pytest
 ```
 
 ## ライセンス
