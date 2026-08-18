@@ -8,7 +8,23 @@ from .constants import (
 )
 from .geometry import _ln_style_parts, _rotate_point, _xfrm_transform
 
-def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, theme, from_corner=None, to_corner=None):
+def _conn_side(preset, idx):
+    """Map a stCxn/endCxn connection-point index to a drawio side.
+
+    Most presets number the four cardinal points 0=top, 1=left, 2=bottom,
+    3=right. The "can" (cylinder) preset adds a leading point, shifting the
+    cardinal points to 1=top, 2=left, 3=bottom, 4=right.
+    """
+    try:
+        idx = int(idx)
+    except (TypeError, ValueError):
+        return None
+    if preset == 'can':
+        return {0: 'top', 1: 'top', 2: 'left', 3: 'bottom', 4: 'right'}.get(idx)
+    return {0: 'top', 1: 'left', 2: 'bottom', 3: 'right'}.get(idx)
+
+
+def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, theme, from_corner=None, to_corner=None, shape_preset=None):
     """Emit a connector as a drawio edge for a pre-resolved bbox rect.
 
     ``ax/ay/w/h`` is the connector's bounding box in drawio pixels.
@@ -73,33 +89,61 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, theme, from_corner=None, to_co
                     if not raw:
                         raw = gd.attrib.get('val', '')
                     try:
-                        adj = max(0.0, min(1.0, int(raw) / 100000.0))
+                        adj = int(raw) / 100000.0
                     except (ValueError, TypeError):
                         adj = None
                     break
-            if not has_bound_end or adj is not None:
-                # Determine elbow from prst preset type, per OOXML preset paths:
-                #   bentConnector2: M 0 0 L cx 0 L cx cy   (horizontal first)
-                #   bentConnector3: M 0 0 L 0 r L cx r L cx cy  (vertical first)
-                #   bentConnector4: horizontal first
-                #   bentConnector5: vertical first
-                # Even idx (2, 4) -> horizontal first; odd idx (3, 5) -> vertical first.
-                # Excel ignores xfrm bbox aspect ratio for anchor-based routing
-                # and strictly follows the preset type.
-                if idx in (2, 4):
-                    # Horizontal first -> elbow at (x2, y1)
-                    if adj is not None:
-                        xb = x1 + (x2 - x1) * adj
-                        edge_points = [(xb, y1)]
-                    else:
-                        edge_points = [(x2, y1)]
+            # OOXML bent-connector presets are 3-segment routes with TWO
+            # elbows, adjustable via adj1 (default 0.5):
+            #   bentConnector2: right -> down -> right  (horizontal first)
+            #       elbows at (xb, y1) and (xb, y2),  xb = x1 + (x2-x1)*adj1
+            #   bentConnector3: down -> right -> down   (vertical first)
+            #       elbows at (x1, yb) and (x2, yb),  yb = y1 + (y2-y1)*adj1
+            # Route so that BOTH ends leave/enter perpendicular to their
+            # shapes, otherwise the line hugs the boundary or wraps around.
+            # The OOXML preset name alone doesn't reliably encode the axis
+            # (bentConnector3 is used for both vertical and horizontal
+            # exits). bentConnector4/5 are the fixed 2-segment variants.
+            # adj1 may lie outside [0,1] (e.g. -0.29, 1.03): a negative value
+            # pushes the elbow past the head so the route turns AWAY from the
+            # exit side instead of hugging the shape boundary (same-side links).
+            exit_side = _conn_side(shape_preset.get(src_id) if shape_preset else None, src_idx)
+            entry_side = _conn_side(shape_preset.get(tgt_id) if shape_preset else None, tgt_idx)
+            if exit_side is not None and entry_side is not None:
+                exit_h = exit_side in ('left', 'right')
+                entry_h = entry_side in ('left', 'right')
+                if exit_h != entry_h:
+                    # Mixed axes -> L-shape (2 segments) so the entry is
+                    # perpendicular too.
+                    edge_points = [(x2, y1)] if exit_h else [(x1, y2)]
                 else:
-                    # Vertical first -> elbow at (x1, y2)
-                    if adj is not None:
-                        yb = y1 + (y2 - y1) * adj
-                        edge_points = [(x1, yb)]
+                    horizontal_first = exit_h
+            else:
+                # One or both sides unknown: use whichever side is known,
+                # else fall back to the preset.
+                known = exit_side if exit_side is not None else entry_side
+                if known in ('left', 'right'):
+                    horizontal_first = True
+                elif known in ('top', 'bottom'):
+                    horizontal_first = False
+                else:
+                    horizontal_first = (idx in (2, 4))
+            if edge_points is None:
+                if idx in (2, 3):
+                    if adj is None:
+                        adj = 0.5
+                    if horizontal_first:
+                        # right/left -> down/up -> right/left
+                        xb = x1 + (x2 - x1) * adj
+                        edge_points = [(xb, y1), (xb, y2)]
                     else:
-                        edge_points = [(x1, y2)]
+                        # down/up -> right/left -> down/up
+                        yb = y1 + (y2 - y1) * adj
+                        edge_points = [(x1, yb), (x2, yb)]
+                elif horizontal_first:
+                    edge_points = [(x2, y1)]
+                else:
+                    edge_points = [(x1, y2)]
     else:
         if prst_name.startswith('bentConnector'):
             # OOXML bent connectors are orthogonal/elbow polylines.
@@ -126,7 +170,7 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, theme, from_corner=None, to_co
                     if not raw:
                         raw = gd.attrib.get('val', '')
                     try:
-                        adj = max(0.0, min(1.0, int(raw) / 100000.0))
+                        adj = int(raw) / 100000.0
                     except (ValueError, TypeError):
                         adj = None
                     break
@@ -215,16 +259,24 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, theme, from_corner=None, to_co
     elif prst_name.startswith('straightConnector'):
         parts.append('edgeStyle=none')
         
-    if src_idx:
-        if src_idx == '0': parts.append('exitX=0.5;exitY=0;exitDx=0;exitDy=0')
-        elif src_idx == '1': parts.append('exitX=0;exitY=0.5;exitDx=0;exitDy=0')
-        elif src_idx == '2': parts.append('exitX=0.5;exitY=1;exitDx=0;exitDy=0')
-        elif src_idx == '3': parts.append('exitX=1;exitY=0.5;exitDx=0;exitDy=0')
-    if tgt_idx:
-        if tgt_idx == '0': parts.append('entryX=0.5;entryY=0;entryDx=0;entryDy=0')
-        elif tgt_idx == '1': parts.append('entryX=0;entryY=0.5;entryDx=0;entryDy=0')
-        elif tgt_idx == '2': parts.append('entryX=0.5;entryY=1;entryDx=0;entryDy=0')
-        elif tgt_idx == '3': parts.append('entryX=1;entryY=0.5;entryDx=0;entryDy=0')
+    src_side = _conn_side(shape_preset.get(src_id) if shape_preset else None, src_idx)
+    tgt_side = _conn_side(shape_preset.get(tgt_id) if shape_preset else None, tgt_idx)
+    if src_side == 'top':
+        parts.append('exitX=0.5;exitY=0;exitDx=0;exitDy=0')
+    elif src_side == 'left':
+        parts.append('exitX=0;exitY=0.5;exitDx=0;exitDy=0')
+    elif src_side == 'bottom':
+        parts.append('exitX=0.5;exitY=1;exitDx=0;exitDy=0')
+    elif src_side == 'right':
+        parts.append('exitX=1;exitY=0.5;exitDx=0;exitDy=0')
+    if tgt_side == 'top':
+        parts.append('entryX=0.5;entryY=0;entryDx=0;entryDy=0')
+    elif tgt_side == 'left':
+        parts.append('entryX=0;entryY=0.5;entryDx=0;entryDy=0')
+    elif tgt_side == 'bottom':
+        parts.append('entryX=0.5;entryY=1;entryDx=0;entryDy=0')
+    elif tgt_side == 'right':
+        parts.append('entryX=1;entryY=0.5;entryDx=0;entryDy=0')
 
     parts.append(f'strokeColor={color}')
     if lw_px > 1:
@@ -252,7 +304,7 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, theme, from_corner=None, to_co
     bld.add_edge(x1, y1, x2, y2, style, points=edge_points, src_id=src_id, tgt_id=tgt_id, edge_id=cxn_id)
 
 
-def _emit_cxnsp(cxn, pax, pay, sx, sy, bld, theme):
+def _emit_cxnsp(cxn, pax, pay, sx, sy, bld, theme, shape_preset=None):
     """Emit a connector shape whose bbox is stored in its own ``a:xfrm``.
 
     Used by the grpSp walker where the connector's xfrm is in group-local
@@ -274,5 +326,5 @@ def _emit_cxnsp(cxn, pax, pay, sx, sy, bld, theme):
     ay = pay + int(off.attrib.get('y', 0)) * sy
     w = int(ext.attrib.get('cx', 0)) * sx
     h = int(ext.attrib.get('cy', 0)) * sy
-    _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, theme)
+    _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, theme, shape_preset=shape_preset)
 

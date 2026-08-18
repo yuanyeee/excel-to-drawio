@@ -3,7 +3,7 @@ import html
 import xml.etree.ElementTree as ET
 
 from .colors import _parse_drawing_color
-from .connectors import _emit_cxnsp, _render_cxnsp_at_rect
+from .connectors import _conn_side, _emit_cxnsp, _render_cxnsp_at_rect
 from .constants import (
     A,
     GEOM_STYLES,
@@ -16,6 +16,7 @@ from .geometry import (
     _get_text,
     _get_xfrm,
     _ln_style_parts,
+    _rotate_point,
     _xfrm_transform,
 )
 from .grid import _emu_px
@@ -288,7 +289,7 @@ def _emit_sp(sp, pax, pay, sx, sy, bld, theme):
     _render_sp(sp, ax, ay, w, h, bld, theme)
 
 
-def _walk_group(grp, pax, pay, sx, sy, bld, images, theme, depth=0):
+def _walk_group(grp, pax, pay, sx, sy, bld, images, theme, shape_preset=None, depth=0):
     if depth > 25:
         return
     grp_pr = grp.find(f'{{{XDR}}}grpSpPr')
@@ -309,9 +310,9 @@ def _walk_group(grp, pax, pay, sx, sy, bld, images, theme, depth=0):
         if ct == 'sp':
             _emit_sp(child, cox, coy, csx, csy, bld, theme)
         elif ct == 'cxnSp':
-            _emit_cxnsp(child, cox, coy, csx, csy, bld, theme)
+            _emit_cxnsp(child, cox, coy, csx, csy, bld, theme, shape_preset)
         elif ct == 'grpSp':
-            _walk_group(child, cox, coy, csx, csy, bld, images, theme, depth + 1)
+            _walk_group(child, cox, coy, csx, csy, bld, images, theme, shape_preset, depth + 1)
         elif ct == 'pic':
             _emit_pic(child, images, cox, coy, csx, csy, bld)
 
@@ -345,11 +346,77 @@ def _anchor_rect(anchor, col_x, row_y, cfg):
     return anc_x, anc_y, anc_w, anc_h
 
 
+def _conn_point(bbox, side):
+    """Return the (x, y) of a shape's connection point for a given side."""
+    x1, y1, x2, y2 = bbox
+    cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+    if side == 'top':
+        return cx, y1
+    if side == 'bottom':
+        return cx, y2
+    if side == 'left':
+        return x1, cy
+    if side == 'right':
+        return x2, cy
+    return cx, cy
+
+
+def _cxn_head_tail_corners(ax, ay, aw, ah, xfrm):
+    """Return ((hx, hy), (tx, ty)) sheet corners for a connector's head/tail.
+
+    The canonical bent-connector path runs from the local top-left (head) to
+    the local bottom-right (tail). ``flipH``/``flipV`` and the xfrm rotation
+    remap those two corners onto the sheet-space anchor rect.  For a connector
+    with an unbound end (no stCxn/endCxn) the free endpoint sits at one of
+    these corners, so this resolves the correct one after rotation.
+    """
+    rot, fh, fv = _xfrm_transform(xfrm)
+    if not fh and not fv:
+        hx, hy = ax, ay
+        tx, ty = ax + aw, ay + ah
+    elif fh and not fv:
+        hx, hy = ax + aw, ay
+        tx, ty = ax, ay + ah
+    elif fv and not fh:
+        hx, hy = ax, ay + ah
+        tx, ty = ax + aw, ay
+    else:
+        hx, hy = ax + aw, ay + ah
+        tx, ty = ax, ay
+    if rot:
+        q = round(rot / 90.0)
+        if abs(rot - q * 90.0) <= 1.0:
+            cx, cy = ax + aw / 2.0, ay + ah / 2.0
+            hx, hy = _rotate_point(hx, hy, cx, cy, -q * 90.0)
+            tx, ty = _rotate_point(tx, ty, cx, cy, -q * 90.0)
+    return (hx, hy), (tx, ty)
+
+
 def _add_drawing_shapes(z, drawing_path, col_x, row_y, bld, cfg, theme):
     """Parse drawing XML and emit shapes, connectors, and images."""
     dr = ET.fromstring(z.read(drawing_path).decode('utf-8'))
     sc = 1.0 / cfg.emu_per_px / cfg.scale
     images = _extract_images(z, drawing_path) if cfg.render_images else {}
+    # Build a shape-id -> preset map so connectors can resolve the correct
+    # connection-point ordering (the "can" cylinder shifts its cardinal
+    # points by one).
+    shape_preset = {}
+    shape_bbox = {}
+    for _anchor in dr:
+        _rect = _anchor_rect(_anchor, col_x, row_y, cfg)
+        for _child in _descend_alt_content(_anchor):
+            if _child.tag.split('}')[-1] == 'sp':
+                _nv = _child.find(f'{{{XDR}}}nvSpPr/{{{XDR}}}cNvPr')
+                if _nv is None:
+                    continue
+                _sid = _nv.attrib.get('id')
+                _spr = _child.find(f'{{{XDR}}}spPr')
+                _geom = _spr.find(f'{{{A}}}prstGeom') if _spr is not None else None
+                if _sid is not None and _geom is not None:
+                    shape_preset[_sid] = _geom.attrib.get('prst', 'rect')
+                    if _rect is not None:
+                        _ax, _ay, _aw, _ah = _rect
+                        shape_bbox[_sid] = (_ax, _ay, _ax + _aw, _ay + _ah)
     for anchor in dr:
         tag = anchor.tag.split('}')[-1]
         if tag not in ('oneCellAnchor', 'twoCellAnchor'):
@@ -379,25 +446,51 @@ def _add_drawing_shapes(z, drawing_path, col_x, row_y, bld, cfg, theme):
                     if gct == 'sp':
                         _emit_sp(gc, cox, coy, csx, csy, bld, theme)
                     elif gct == 'grpSp':
-                        _walk_group(gc, cox, coy, csx, csy, bld, images, theme)
+                        _walk_group(gc, cox, coy, csx, csy, bld, images, theme, shape_preset)
                     elif gct == 'cxnSp':
-                        _emit_cxnsp(gc, cox, coy, csx, csy, bld, theme)
+                        _emit_cxnsp(gc, cox, coy, csx, csy, bld, theme, shape_preset)
                     elif gct == 'pic':
                         _emit_pic(gc, images, cox, coy, csx, csy, bld)
             elif ct == 'cxnSp':
-                # Anchor-level connector: use the _anchor_rect bbox so the
-                # line endpoints align with the same pixel math the cell
-                # labels and shapes use.
-                # Also pass the exact from/to pixel corners so _render_cxnsp_at_rect
-                # can skip xfrm rot/flip recomputation (the anchor already encodes
-                # the final on-sheet position).
+                # Anchor-level connector. For BOUND connectors the from/to
+                # anchors are the bounding-box corners, NOT the endpoints:
+                # the real endpoints are the stCxn/endCxn connection points
+                # on the shapes. Resolve those first, then fall back to the
+                # from/to corners for unbound connectors (where from/to ARE
+                # the endpoints).
                 cx_last = len(col_x) - 1
                 ry_last = len(row_y) - 1
                 from_el_c = anchor.find(f'{{{XDR}}}from')
                 to_el_c   = anchor.find(f'{{{XDR}}}to')
                 from_corner_c = None
                 to_corner_c   = None
-                if from_el_c is not None:
+                _cnv = child.find(f'{{{XDR}}}nvCxnSpPr/{{{XDR}}}cNvCxnSpPr')
+                if _cnv is not None:
+                    _st = _cnv.find(f'{{{A}}}stCxn')
+                    _ed = _cnv.find(f'{{{A}}}endCxn')
+                    # Resolve each bound end to its shape connection point.
+                    if _st is not None:
+                        _src_side = _conn_side(shape_preset.get(_st.attrib.get('id')), _st.attrib.get('idx'))
+                        _src_bb = shape_bbox.get(_st.attrib.get('id'))
+                        if _src_side and _src_bb:
+                            from_corner_c = _conn_point(_src_bb, _src_side)
+                    if _ed is not None:
+                        _tgt_side = _conn_side(shape_preset.get(_ed.attrib.get('id')), _ed.attrib.get('idx'))
+                        _tgt_bb = shape_bbox.get(_ed.attrib.get('id'))
+                        if _tgt_side and _tgt_bb:
+                            to_corner_c = _conn_point(_tgt_bb, _tgt_side)
+                # For an unbound end the anchor from/to carries the endpoint,
+                # but which corner is the head vs tail depends on the xfrm
+                # flip/rotation. Resolve the head/tail corners explicitly.
+                if from_corner_c is None or to_corner_c is None:
+                    _spr_c = child.find(f'{{{XDR}}}spPr')
+                    _xfrm_c = _spr_c.find(f'{{{A}}}xfrm') if _spr_c is not None else None
+                    (_hx, _hy), (_tx, _ty) = _cxn_head_tail_corners(anc_x, anc_y, anc_w, anc_h, _xfrm_c)
+                    if from_corner_c is None:
+                        from_corner_c = (_hx, _hy)
+                    if to_corner_c is None:
+                        to_corner_c = (_tx, _ty)
+                if from_corner_c is None and from_el_c is not None:
                     ffc  = int(from_el_c.findtext(f'{{{XDR}}}col',     '0') or '0')
                     ffco = int(from_el_c.findtext(f'{{{XDR}}}colOff', '0') or '0')
                     ffr  = int(from_el_c.findtext(f'{{{XDR}}}row',     '0') or '0')
@@ -406,7 +499,7 @@ def _add_drawing_shapes(z, drawing_path, col_x, row_y, bld, cfg, theme):
                         col_x[min(ffc, cx_last)] / cfg.scale + _emu_px(ffco, cfg),
                         row_y[min(ffr, ry_last)] / cfg.scale + _emu_px(ffro, cfg),
                     )
-                if to_el_c is not None:
+                if to_corner_c is None and to_el_c is not None:
                     ftc  = int(to_el_c.findtext(f'{{{XDR}}}col',     '0') or '0')
                     ftco = int(to_el_c.findtext(f'{{{XDR}}}colOff', '0') or '0')
                     ftr  = int(to_el_c.findtext(f'{{{XDR}}}row',     '0') or '0')
@@ -417,7 +510,8 @@ def _add_drawing_shapes(z, drawing_path, col_x, row_y, bld, cfg, theme):
                     )
                 _render_cxnsp_at_rect(child, anc_x, anc_y, anc_w, anc_h, bld, theme,
                                       from_corner=from_corner_c,
-                                      to_corner=to_corner_c)
+                                      to_corner=to_corner_c,
+                                      shape_preset=shape_preset)
             elif ct == 'pic':
                 # Top-level picture in anchor: resolve the primary/SVG alternate
                 # rid and render at the anchor rect.
