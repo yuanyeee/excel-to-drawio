@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "excel-to-drawio"
+version = "1.0.0"
+description = "Convert Excel (.xlsx/.xlsm) sheets to Draw.io (.drawio) format"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+keywords = ["excel", "drawio", "diagram", "converter", "ooxml"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = []
+
+[project.scripts]
+excel-to-drawio = "excel_to_drawio.__main__:main"
+excel-to-drawio-gui = "excel_to_drawio.desktop_app:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["excel_to_drawio"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
