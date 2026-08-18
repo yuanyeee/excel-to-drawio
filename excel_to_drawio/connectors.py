@@ -89,7 +89,12 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, theme, from_corner=None, to_co
                     if not raw:
                         raw = gd.attrib.get('val', '')
                     try:
-                        adj = int(raw) / 100000.0
+                        # Keep adj1 in a sane [-2, 2] window: legitimate
+                        # elbow detours run a little outside [0,1] (e.g.
+                        # -0.29, 1.03 for same-side routes), but corrupted
+                        # values like -1109 / +21139 would blow up the
+                        # waypoint and inflate the page to ~1M px.
+                        adj = max(-2.0, min(2.0, int(raw) / 100000.0))
                     except (ValueError, TypeError):
                         adj = None
                     break
@@ -170,7 +175,12 @@ def _render_cxnsp_at_rect(cxn, ax, ay, w, h, bld, theme, from_corner=None, to_co
                     if not raw:
                         raw = gd.attrib.get('val', '')
                     try:
-                        adj = int(raw) / 100000.0
+                        # Keep adj1 in a sane [-2, 2] window: legitimate
+                        # elbow detours run a little outside [0,1] (e.g.
+                        # -0.29, 1.03 for same-side routes), but corrupted
+                        # values like -1109 / +21139 would blow up the
+                        # waypoint and inflate the page to ~1M px.
+                        adj = max(-2.0, min(2.0, int(raw) / 100000.0))
                     except (ValueError, TypeError):
                         adj = None
                     break
