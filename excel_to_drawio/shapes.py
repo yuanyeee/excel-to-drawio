@@ -6,7 +6,9 @@ from .colors import _parse_drawing_color
 from .connectors import _conn_side, _emit_cxnsp, _render_cxnsp_at_rect
 from .constants import (
     A,
+    ASVG,
     GEOM_STYLES,
+    R,
     XDR,
 )
 from .geometry import (
@@ -20,7 +22,7 @@ from .geometry import (
     _xfrm_transform,
 )
 from .grid import _emu_px
-from .images import _emit_pic, _extract_images
+from .images import _emit_pic, _extract_images, _render_pic_at_rect
 
 def _sp_fill(sp_pr, theme):
     if sp_pr.find(f'{{{A}}}noFill') is not None:
