@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 rem Excel to Draw.io Converter - GUI launcher (Windows)
 setlocal
 cd /d "%~dp0"
