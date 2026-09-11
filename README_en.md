@@ -70,6 +70,17 @@ python -m excel_to_drawio.desktop_app
 excel-to-drawio-gui
 ```
 
+To launch the GUI without installing anything, use the OS-specific launcher
+scripts. They run directly from the repository root.
+
+| OS | How to run |
+|---|---|
+| Windows | Double-click `run_gui.bat` |
+| macOS | Double-click `run_gui.command` (first run may require right-click → Open) |
+| Linux | Run `./run_gui.sh` in a terminal |
+
+Each script checks for Python and tkinter and prints install instructions if either is missing.
+
 ## Project structure
 
 ```
@@ -90,6 +101,9 @@ excel-to-drawio/
 │   ├── connectors.py         # connector rendering
 │   ├── shapes.py             # shape rendering
 │   └── convert.py            # conversion orchestration
+├── run_gui.bat               # GUI launcher script (Windows)
+├── run_gui.command           # GUI launcher script (macOS)
+├── run_gui.sh                # GUI launcher script (Linux)
 ├── pyproject.toml            # packaging + console scripts
 ├── LICENSE                   # MIT
 └── README.md                 # this file

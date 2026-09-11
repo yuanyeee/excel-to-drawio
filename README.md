@@ -68,6 +68,17 @@ python -m excel_to_drawio.desktop_app
 excel-to-drawio-gui
 ```
 
+インストール不要ですぐに GUI を起動したい場合は、OS 別の起動スクリプトも
+用意しています。リポジトリ直下からそのまま実行できます。
+
+| OS | 実行方法 |
+|---|---|
+| Windows | `run_gui.bat` をダブルクリック |
+| macOS | `run_gui.command` をダブルクリック（初回は右クリック→「開く」が必要な場合があります） |
+| Linux | ターミナルで `./run_gui.sh` を実行 |
+
+各スクリプトは Python と tkinter の有無を確認し、不足していればインストール方法を案内します。
+
 ## プロジェクト構成
 
 ```
@@ -88,6 +99,9 @@ excel-to-drawio/
 │   ├── connectors.py         # コネクター描画
 │   ├── shapes.py             # 図形描画
 │   └── convert.py            # 変換オーケストレーション
+├── run_gui.bat               # GUI 起動スクリプト (Windows)
+├── run_gui.command           # GUI 起動スクリプト (macOS)
+├── run_gui.sh                # GUI 起動スクリプト (Linux)
 ├── pyproject.toml            # パッケージング設定
 ├── LICENSE                   # MIT
 └── README.md                 # このファイル

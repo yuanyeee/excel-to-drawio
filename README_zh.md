@@ -68,6 +68,17 @@ python -m excel_to_drawio.desktop_app
 excel-to-drawio-gui
 ```
 
+如果想免安装直接启动 GUI，也可以使用各操作系统对应的启动脚本，
+可直接在仓库根目录下运行。
+
+| 操作系统 | 运行方式 |
+|---|---|
+| Windows | 双击 `run_gui.bat` |
+| macOS | 双击 `run_gui.command`（首次运行可能需要右键→打开） |
+| Linux | 在终端执行 `./run_gui.sh` |
+
+每个脚本都会检测 Python 和 tkinter 是否可用，缺失时会给出安装提示。
+
 ## 项目结构
 
 ```
@@ -88,6 +99,9 @@ excel-to-drawio/
 │   ├── connectors.py         # 连接器渲染
 │   ├── shapes.py             # 形状渲染
 │   └── convert.py            # 转换编排
+├── run_gui.bat               # GUI 启动脚本 (Windows)
+├── run_gui.command           # GUI 启动脚本 (macOS)
+├── run_gui.sh                # GUI 启动脚本 (Linux)
 ├── pyproject.toml            # 打包配置
 ├── LICENSE                   # MIT
 └── README.md                 # 本文件
