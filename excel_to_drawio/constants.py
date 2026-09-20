@@ -188,3 +188,12 @@ BORDER_STYLE_MAP = {
     'double': (1, None),  # rendered as 2 lines in add_cell_borders
 }
 
+
+# Label layout, in sync with the style strings built by _make_cell_text_style.
+# Draw.io lays a label out inside the cell minus these spacings, so the
+# font-fit calculation has to subtract the very same values.
+LINE_HEIGHT = 1.2       # mxGraph default line height
+LABEL_SPACING_LEFT = 5  # spacingLeft for left-aligned labels
+LABEL_SPACING_TOP = 3   # spacingTop for regular labels
+LABEL_SPACING_TOP_COMPACT = 1
+

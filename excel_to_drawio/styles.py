@@ -7,6 +7,10 @@ from math import ceil
 from .colors import _parse_color_el, _should_skip_fill
 from .constants import (
     BORDER_STYLE_MAP,
+    LABEL_SPACING_LEFT,
+    LABEL_SPACING_TOP,
+    LABEL_SPACING_TOP_COMPACT,
+    LINE_HEIGHT,
     R,
     SS,
 )
@@ -478,13 +482,19 @@ def _estimate_text_units(text):
     return max(units, 1.0)
 
 
-def _fit_font_size(text, width, height, base_font_size):
-    """Shrink font size until text fits in width x height."""
+def _fit_font_size(text, width, height, base_font_size, h_spacing=0, v_spacing=0):
+    """Shrink font size until text fits in width x height.
+
+    ``h_spacing``/``v_spacing`` are the spacingLeft/spacingTop values the
+    caller will emit: the renderer subtracts them from the usable box, so
+    ignoring them makes the label wrap and spill over the cell borders.
+    """
     font_size = max(6, base_font_size)
     while font_size > 6:
-        line_cap = max(1.0, (width - 2) / max(font_size * 0.95, 1))
+        # _estimate_text_units returns em units, so one unit is one font_size.
+        line_cap = max(1.0, (width - 2 - h_spacing) / max(font_size, 1))
         req_lines = ceil(_estimate_text_units(text) / line_cap)
-        max_lines = max(1, int(height / max(font_size * 1.15, 1)))
+        max_lines = max(1, int((height - v_spacing) / max(font_size * LINE_HEIGHT, 1)))
         if req_lines <= max_lines:
             break
         font_size -= 1
@@ -507,7 +517,11 @@ def _make_cell_text_style(style_info, text, width, height, compact=False):
     if compact:
         eff['align'] = 'center'
         eff['verticalAlign'] = 'middle'
-    fsz = _fit_font_size(text, width, height, eff.get('fontSize', 10))
+    spacing_left = (LABEL_SPACING_LEFT
+                    if not compact and eff.get('align', 'left') == 'left' else 0)
+    spacing_top = LABEL_SPACING_TOP_COMPACT if compact else LABEL_SPACING_TOP
+    fsz = _fit_font_size(text, width, height, eff.get('fontSize', 10),
+                         h_spacing=spacing_left, v_spacing=spacing_top)
     parts = [
         'text', 'html=1', 'strokeColor=none', 'fillColor=none',
         'whiteSpace=wrap',
@@ -526,9 +540,9 @@ def _make_cell_text_style(style_info, text, width, height, compact=False):
         parts.append(f'textDecoration={eff["textDecoration"]}')
     if eff.get('rotation'):
         parts.append(f'rotation={-eff["rotation"]}')
-    parts.append('spacingTop=1' if compact else 'spacingTop=3')
-    if not compact and eff.get('align', 'left') == 'left':
-        parts.append('spacingLeft=5')
+    parts.append(f'spacingTop={spacing_top}')
+    if spacing_left:
+        parts.append(f'spacingLeft={spacing_left}')
     return ';'.join(parts) + ';'
 
 
@@ -588,7 +602,10 @@ def _add_cell_labels(sh_root, col_x, row_y, col_w, row_h, shared_strings,
                 c_end = c
                 if not compact:
                     base_font = style_info.get('fontSize', 10)
-                    needed_px = _estimate_text_units(val) * base_font * 0.72 + 10
+                    # One unit is one em, plus the padding and spacing the
+                    # label style adds on top of the raw glyph width.
+                    needed_px = (_estimate_text_units(val) * base_font
+                                 + LABEL_SPACING_LEFT + 4)
                     own_fill = fill_grid.get((r, c))
                     acc_w = base_w
                     nc = c + 1
