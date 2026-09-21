@@ -1,0 +1,8 @@
+# cmd.exe mis-parses batch files that use LF-only line endings, and
+# /bin/sh chokes on the CR of a CRLF shell script, so pin the line ending
+# each interpreter needs regardless of the platform the file came from.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.sh text eol=lf
+*.command text eol=lf

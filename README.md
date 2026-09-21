@@ -79,6 +79,9 @@ excel-to-drawio-gui
 
 各スクリプトは Python と tkinter の有無を確認し、不足していればインストール方法を案内します。
 
+改行コードは `.gitattributes` で固定しており、`run_gui.bat` は CRLF、`.sh` と
+`.command` は LF で取得されます（clone / ZIP ダウンロードのどちらでも同じです）。
+
 ## プロジェクト構成
 
 ```

@@ -79,6 +79,9 @@ excel-to-drawio-gui
 
 每个脚本都会检测 Python 和 tkinter 是否可用，缺失时会给出安装提示。
 
+换行符已在 `.gitattributes` 中固定：`run_gui.bat` 始终为 CRLF，`.sh` 与 `.command`
+始终为 LF，无论是 clone 还是下载 ZIP 都一致。
+
 ## 项目结构
 
 ```

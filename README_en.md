@@ -81,6 +81,9 @@ scripts. They run directly from the repository root.
 
 Each script checks for Python and tkinter and prints install instructions if either is missing.
 
+Line endings are pinned in `.gitattributes`, so `run_gui.bat` always arrives with
+CRLF and the `.sh`/`.command` scripts with LF, whether you clone or download the ZIP.
+
 ## Project structure
 
 ```
